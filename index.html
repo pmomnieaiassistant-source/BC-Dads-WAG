@@ -18,7 +18,7 @@
 // The only line you may ever need to change is API_URL: it must be the
 // Apps Script web app address ending in /exec (same as Settings > redirect_url).
 // ================================================================
-var API_URL = 'https://url.us.m.mimecastprotect.com/s/FO5cCADmQxUgBWpXt8h9KtGOvBO?domain=script.google.com';
+var API_URL = 'https://url.us.m.mimecastprotect.com/s/z8yoCxklVmSyD6EGtvhEKtybTDM?domain=script.google.com';
 </script>
 <style>
 :root{--bg:#0E1013;--card:#171A1F;--line:#262A31;--line2:#2E333B;--text:#F2F3F5;--soft:#DDE1E6;--mid:#C3C8D0;--dim:#9AA1AC;--lime:#C8F04B;--gold:#F5C451;--red:#FF8A80;--orange:#FFB86B}
@@ -77,6 +77,13 @@ main{flex:1;padding:14px 14px 170px;display:flex;flex-direction:column;gap:12px}
 input.txt,textarea.txt{width:100%;min-height:44px;border-radius:14px;border:1px solid var(--line2);background:var(--bg);padding:10px 14px;font-size:16px;outline:none}
 .dots{display:flex;gap:5px}.dot{width:13px;height:13px;border-radius:999px;border:2px solid #4A505A}.dot.f{background:var(--lime);border-color:var(--lime)}
 .st{font-size:11px;font-weight:800;letter-spacing:.5px;padding:3px 8px;border-radius:6px}
+.list .st{width:84px;text-align:center;flex:none;white-space:nowrap}.list .dots{flex:none}
+#ptr{position:fixed;top:calc(env(safe-area-inset-top) + 74px);left:50%;z-index:6;width:38px;height:38px;margin-left:-19px;border-radius:999px;background:var(--card);border:1px solid var(--line2);display:flex;align-items:center;justify-content:center;color:var(--lime);opacity:0;transform:translateY(-60px);pointer-events:none}
+#ptr.go svg{animation:ptrspin .8s linear infinite}
+@keyframes ptrspin{to{transform:rotate(360deg)}}
+html{overscroll-behavior-y:contain}
+header.top .pill{padding:0 12px}
+@media (prefers-reduced-motion:reduce){#ptr.go svg{animation:none}}
 .st.complete{background:#1E3320;color:#9BE29F}.st.eligible{background:#33301B;color:#F3E08A}.st.dormie{background:#3D2810;color:var(--orange)}.st.eliminated{background:#3B1A1A;color:var(--red)}.st.exempt,.st.inactive{background:#2A2D33;color:var(--dim)}
 .tw{overflow-x:auto;border:1px solid var(--line);border-radius:14px;background:var(--card)}
 table{border-collapse:separate;border-spacing:0;font-size:13px;width:100%}
@@ -124,9 +131,10 @@ h2.h{font-size:18px}
 <body>
 <div class="app">
   <header class="top">
-    <div class="col" style="gap:1px"><h1>BC Dads WAG</h1><span class="sub" id="hdrSub">Loading...</span></div>
-    <button class="pill" id="refreshBtn" data-a="refresh" aria-label="Refresh">Refresh</button>
+    <div class="col" style="gap:1px"><h1>BC Dads WAG</h1><span class="sub" id="hdrSub">Loading...</span><span class="sub" id="hdrSync" style="font-size:12px"></span></div>
+    <div class="row" style="gap:8px;flex:none"><button class="pill" id="syncBtn" data-a="syncNow" aria-label="Sync WHOOP now">Sync</button><button class="pill" id="refreshBtn" data-a="refresh" aria-label="Refresh">Refresh</button></div>
   </header>
+  <div id="ptr" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5"/></svg></div>
   <main id="view"><div class="empty">Loading...</div></main>
 </div>
 <button class="fab" id="fab" data-a="openLog" style="display:none">+ Log workout</button>
@@ -189,10 +197,10 @@ h2.h{font-size:18px}
   function dayLabel(iso) { var d = new Date(dayNum(iso) * 86400000); return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getUTCDay()] + ' ' + (d.getUTCMonth() + 1) + '/' + d.getUTCDate(); }
   function cellOf(w, pid) { return w.cells.filter(function (x) { return x.pid === pid; })[0] || null; }
   function weekCount(pid) { var w = S.matrix[S.week.current - 1]; var c = w && cellOf(w, pid); return c ? c.count : 0; }
-  function toast(msg, isErr) {
+  function toast(msg, isErr, ms) {
     var t = document.getElementById('toast');
     t.textContent = msg; t.className = 'toast' + (isErr ? ' err' : ''); t.style.display = 'block';
-    clearTimeout(toast.timer); toast.timer = setTimeout(function () { t.style.display = 'none'; }, isErr ? 5000 : 3200);
+    clearTimeout(toast.timer); toast.timer = setTimeout(function () { t.style.display = 'none'; }, ms || (isErr ? 5000 : 3200));
   }
   function findItem(id) {
     var hit = S.feed.filter(function (x) { return x.id === id; });
@@ -230,12 +238,14 @@ h2.h{font-size:18px}
         }
         if (j.state) { S = j.state; lsSet('bcd_state', JSON.stringify(S)); }
         if (j.profile) ui.profiles[j.profile.pid] = j.profile;
-        if (j.message) toast(j.message);
+        var news = (j.badgeNews || []).map(function (n) { return n.type === 'badge_gain' ? n.title.replace(/^.*? earned /, 'You earned ') : n.title.replace(/^.*? lost /, 'You lost '); });
+        if (news.length) toast(news.join(' \u00b7 '), false, 6000);
+        else if (j.message) toast(j.message);
         return j;
       })
       .catch(function () { if (!quiet) { setBusy(false); toast('Could not reach the tracker. Check your connection.', true); } return null; });
   }
-  function setBusy(b) { ui.busy = b; document.getElementById('refreshBtn').className = 'pill' + (b ? ' spin' : ''); }
+  function setBusy(b) { ui.busy = b; document.getElementById('refreshBtn').className = 'pill' + (b ? ' spin' : ''); document.getElementById('syncBtn').className = 'pill' + (b ? ' spin' : ''); }
   function typing() { var a = document.activeElement; return !!(a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA')); }
   function refresh(quiet) {
     return api('state', {}, quiet).then(function (j) { if (j && !(quiet && (typing() || ui.stack.length))) render(); });
@@ -591,6 +601,7 @@ h2.h{font-size:18px}
   function render() {
     if (!S) return;
     document.getElementById('hdrSub').textContent = S.week.label;
+    document.getElementById('hdrSync').textContent = S.lastSync ? 'WHOOP synced ' + (ago(S.lastSync) === 'now' ? 'just now' : ago(S.lastSync) + ' ago') : '';
     var nav = document.getElementById('tabs');
     nav.style.display = 'block';
     nav.firstElementChild.innerHTML = TABS.map(function (t) { return '<button class="' + (ui.tab === t[0] ? 'on' : '') + '" data-a="tab" data-id="' + t[0] + '"' + (ui.tab === t[0] ? ' aria-current="page"' : '') + '>' + t[2] + t[1] + '</button>'; }).join('');
@@ -606,6 +617,10 @@ h2.h{font-size:18px}
   function closeAll() { ui.stack = []; }
   var ACT = {
     refresh: function () { refresh(false); },
+    syncNow: function () {
+      var b = document.getElementById('syncBtn'); b.textContent = 'Syncing';
+      api('syncNow', {}).then(function (j) { b.textContent = 'Sync'; if (j) render(); });
+    },
     saveKey: function () { var v = val('keyInput'); if (!v) return; var m = v.match(/[?&]k=([^&\s]+)/); KEY = m ? m[1] : v; lsSet('bcd_key', KEY); start(); },
     tab: function (id) { ui.tab = id; ui.lastPaid = null; closeAll(); render(); window.scrollTo(0, 0); },
     filter: function (id) { ui.filter = id; render(); },
@@ -682,6 +697,42 @@ h2.h{font-size:18px}
     var fn = ACT[el.getAttribute('data-a')];
     if (fn) fn(el.getAttribute('data-id'), el);
   });
+
+  // ---------- pull down to refresh ----------
+  // Home-screen apps on iPhone have no built-in pull to refresh, so this does it by hand.
+  // Pulling reloads from the sheet (fast). The Sync button is what asks WHOOP for new workouts.
+  (function () {
+    var ptr = document.getElementById('ptr'), y0 = null, pull = 0, MAX = 120, GO = 64;
+    function scroller() { return ui.stack.length ? document.getElementById('sheetBody') : null; }
+    function atTop() { var sc = scroller(); return sc ? sc.scrollTop <= 0 : (window.scrollY || document.documentElement.scrollTop) <= 0; }
+    function show(px, anim) { ptr.style.transition = anim ? 'transform .2s, opacity .2s' : 'none'; ptr.style.opacity = px > 6 ? Math.min(1, px / GO) : 0; ptr.style.transform = 'translateY(' + (px - 60) + 'px) rotate(' + (px * 3) + 'deg)'; }
+    document.addEventListener('touchstart', function (e) {
+      y0 = null; pull = 0;
+      if (!KEY || !S || ui.busy || e.touches.length !== 1 || !atTop()) return;
+      var t = top(); if (t && t.t === 'log') return;
+      y0 = e.touches[0].clientY;
+    }, { passive: true });
+    document.addEventListener('touchmove', function (e) {
+      if (y0 === null) return;
+      var d = e.touches[0].clientY - y0;
+      if (d <= 0 || !atTop()) { pull = 0; show(0); if (d < -10) y0 = null; return; }
+      pull = Math.min(MAX, d * 0.5); show(pull);
+    }, { passive: true });
+    function end() {
+      if (y0 === null) return;
+      y0 = null;
+      if (pull < GO) { show(0, true); return; }
+      show(GO, true); ptr.className = 'go';
+      var t = top();
+      var p = t && t.t === 'profile' ? api('profile', { pid: t.pid }, true).then(function () { return api('state', {}, true); }) : api('state', {}, true);
+      p.then(function (j) {
+        ptr.className = ''; show(0, true);
+        if (!j) { toast('Could not reach the tracker. Check your connection.', true); return; }
+        if (!typing()) render();
+      });
+    }
+    document.addEventListener('touchend', end); document.addEventListener('touchcancel', end);
+  })();
 
   // ---------- start ----------
   function start() {
