@@ -387,7 +387,7 @@ nav.tabs button.on{color:var(--lime)}
     h += '<section class="card col" style="gap:12px"><div class="row between"><b>WHOOP</b><b class="' + w[1] + '">' + w[0] + '</b></div>' +
       '<p class="sub">' + (S.me.whoop === 'connected' ? 'Your WHOOP workouts post on their own, about once an hour.' : 'Connect WHOOP and your workouts post on their own. No WHOOP? Just use Log workout, or keep texting.') + '</p>' +
       (S.me.whoop === 'connected' ? '' : '<button class="btn" data-a="connect">' + (S.me.whoop === 'reconnect' ? 'Reconnect WHOOP' : 'Connect WHOOP') + '</button>') + '</section>';
-    h += '<section class="card col" style="gap:8px"><b>Put this app on your home screen</b><p class="sub"><b>iPhone:</b> open your personal link in Safari, tap Share, then "Add to Home Screen".<br><b>Android:</b> open it in Chrome, tap the menu, then "Add to Home screen".</p></section>';
+    h += '<section class="card col" style="gap:8px"><b>Put this app on your home screen</b><p class="sub"><b>iPhone:</b> open your personal link in Chrome/Safari, tap Share, then "Add to Home Screen".<br><b>Android:</b> open it in Chrome, tap the menu, then "Add to Home screen".</p></section>';
     h += '<p class="sub" style="text-align:center">BC Dads WAG v' + esc(S.version) + '</p>';
     return h;
   }
