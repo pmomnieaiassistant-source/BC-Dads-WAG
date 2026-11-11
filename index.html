@@ -18,7 +18,7 @@
 // The only line you may ever need to change is API_URL: it must be the
 // Apps Script web app address ending in /exec (same as Settings > redirect_url).
 // ================================================================
-var API_URL = 'https://script.google.com/macros/s/AKfycbx0_onfzr9j-zB3Hz9PWI-44Cpq6WqUrrbkX5whhMvhQAVcAXgoC4gRjNyKftjaQ1D1/exec';
+var API_URL = 'https://url.us.m.mimecastprotect.com/s/bw-nCOYZERsJ334ZTvhBWtGWoLy?domain=script.google.com';
 </script>
 <style>
 :root{--bg:#0E1013;--card:#171A1F;--line:#262A31;--line2:#2E333B;--text:#F2F3F5;--soft:#DDE1E6;--mid:#C3C8D0;--dim:#9AA1AC;--lime:#C8F04B;--gold:#F5C451;--red:#FF8A80;--orange:#FFB86B}
@@ -65,6 +65,18 @@ main{flex:1;padding:14px 14px 170px;display:flex;flex-direction:column;gap:12px}
 .ev.settle .ic,.ev.payment .ic{background:#232A12;color:var(--lime)}
 .ev.badge_gain{background:#241E0F;border-color:#5C4718}.ev.badge_gain h3,.ev.badge_gain .ic{color:var(--gold)}.ev.badge_gain .ic{background:#3A2F12}
 .ev.badge_loss .ic{color:var(--dim)}
+.ev.bet{border-color:#4B5A1C}.ev.bet .ic,.ev.bet_result .ic{background:#232A12;color:var(--lime)}
+.ev.bet_result{background:#241E0F;border-color:#5C4718}.ev.bet_result h3{color:var(--gold)}
+.sides{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.sd{display:flex;flex-direction:column;gap:2px;align-items:flex-start;text-align:left;min-height:64px;padding:10px 12px;border-radius:12px;border:1px solid var(--line2);background:var(--bg);color:var(--text);font-size:13px}
+button.sd{border-color:var(--lime)}
+.sd.on{background:#232A12;border-color:var(--lime)}.sd.win{border-color:var(--gold)}.sd.off{opacity:.55}
+.sd b{font-size:15px}.sd i{font-style:normal;color:var(--dim);font-size:12px}
+.sw{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:50px;padding:0 14px;border-radius:14px;border:1px solid var(--line2);background:var(--card);width:100%;font-size:15px;font-weight:700;text-align:left}
+.sw span.k{width:46px;height:28px;border-radius:999px;background:#3A4048;position:relative;flex:none}
+.sw span.k:after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:999px;background:#fff}
+.sw.on span.k{background:var(--lime)}.sw.on span.k:after{left:21px;background:var(--bg)}
+.opt:disabled{opacity:.35}
 .dtag{font-size:11px;font-weight:900;letter-spacing:1px;padding:3px 7px;border-radius:6px;background:var(--orange);color:#2A1C0E;margin-right:8px}
 .acts{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .who{font-size:13px;color:var(--mid);display:flex;gap:6px;align-items:flex-start}
@@ -154,11 +166,11 @@ h2.h{font-size:18px}
   if (urlKey) lsSet('bcd_key', urlKey);
   // The key stays in the address on purpose: "Add to Home Screen" saves the address, key included.
 
-  var TYPES = ['Run', 'Strength', 'Bike', 'Golf', 'Swim', 'Sports', 'Other'];
+  var TYPES = ['Run', 'Strength', 'Bike', 'Walk', 'Golf', 'Swim', 'Sports', 'Other'];
   function freshLog() { return { date: '', type: 'Strength', minutes: 40, effort: 'Hard', note: '', editId: '', noteOnly: false }; }
 
   var S = null;                       // latest state from the server
-  var ui = { tab: 'feed', filter: 'all', open: {}, stack: [], busy: false, lastPaid: null, profiles: {}, scrollY: 0, log: freshLog() };
+  var ui = { tab: 'feed', filter: 'all', open: {}, stack: [], busy: false, lastPaid: null, profiles: {}, scrollY: 0, log: freshLog(), bet: null, betPick: null };
   var view = document.getElementById('view');
   function top() { return ui.stack[ui.stack.length - 1] || null; }
 
@@ -238,7 +250,7 @@ h2.h{font-size:18px}
         }
         if (j.state) { S = j.state; lsSet('bcd_state', JSON.stringify(S)); }
         if (j.profile) ui.profiles[j.profile.pid] = j.profile;
-        var news = (j.badgeNews || []).map(function (n) { return n.type === 'badge_gain' ? n.title.replace(/^.*? earned /, 'You earned ') : n.title.replace(/^.*? lost /, 'You lost '); });
+        var news = (j.badgeNews || []).map(function (n) { return n.text || n.title || ''; });
         if (news.length) toast(news.join(' \u00b7 '), false, 6000);
         else if (j.message) toast(j.message);
         return j;
@@ -280,7 +292,11 @@ h2.h{font-size:18px}
     return h;
   }
   function eventCard(it) {
-    var icon = { inmoney: IC.trophy, buying: IC.coin, dormie: IC.flag, nudge: IC.clock, recap: IC.trophy, settle: IC.coin, payment: IC.coin, wall: IC.msg, badge_gain: IC.medal, badge_loss: IC.medal }[it.type] || IC.clock;
+    if (it.type === 'bet') {
+      var bt = betOf(it.betId);
+      if (bt) return '<article class="col" style="gap:8px" id="p-' + esc(it.id) + '"><div class="ev bet"><span class="ic">' + IC.coin + '</span><div class="col grow" style="gap:8px">' + betInner(bt) + actions(it) + '</div></div></article>';
+    }
+    var icon = { bet: IC.coin, bet_result: IC.coin, bet_off: IC.coin, inmoney: IC.trophy, buying: IC.coin, dormie: IC.flag, nudge: IC.clock, recap: IC.trophy, settle: IC.coin, payment: IC.coin, wall: IC.msg, badge_gain: IC.medal, badge_loss: IC.medal }[it.type] || IC.clock;
     var title = it.pid ? '<button class="nm" style="font-weight:800" data-a="profile" data-id="' + esc(it.type === 'wall' && it.toPid ? it.toPid : it.pid) + '">' + esc(it.title) + '</button>' : esc(it.title);
     return '<article class="col" style="gap:8px" id="p-' + esc(it.id) + '"><div class="ev ' + esc(it.type) + '"><span class="ic">' + icon + '</span><div class="col grow">' +
       '<h3>' + (it.type === 'dormie' ? '<span class="dtag">DORMIE</span>' : '') + title + '</h3><p>' + esc(it.body) + '</p>' +
@@ -368,7 +384,8 @@ h2.h{font-size:18px}
 
   function viewBets() {
     var b = S.bank, h = '';
-    var me = b.accounts.filter(function (a) { return a.pid === S.me.pid; })[0] || { won: 0, fines: 0, paid: 0, balance: 0 };
+    var me = b.accounts.filter(function (a) { return a.pid === S.me.pid; })[0] || { won: 0, fines: 0, paid: 0, side: 0, balance: 0 };
+    function signed(n) { return (n > 0 ? '+' : '') + money(n); }
     if (!b.pots.length) h += '<div class="card"><b>No pots yet</b><p class="sub">A pot shows up here each Monday, funded by the fines from the week that just ended. Tracking starts with week ' + b.startWeek + '.</p></div>';
     b.pots.forEach(function (p) {
       var names = p.members.map(person).join(', ') || 'Nobody was in the money';
@@ -389,21 +406,25 @@ h2.h{font-size:18px}
 
     var owed = me.balance < 0 ? -me.balance : 0;
     h += '<h2 class="h" style="margin-top:8px">Your account</h2><section class="card col" style="gap:14px"><div class="row between"><b>' + esc(S.me.name) + '</b><b style="font-size:26px" class="' + (me.balance < 0 ? 'neg' : (me.balance > 0 ? 'pos' : '')) + '">' + money(me.balance) + '</b></div>' +
-      '<div class="stats"><div class="stat"><span>Won</span><b class="pos">' + money(me.won) + '</b></div><div class="stat"><span>Fines</span><b class="neg">' + money(me.fines) + '</b></div><div class="stat"><span>Paid</span><b>' + money(me.paid) + '</b></div></div>' +
+      '<div class="stats" style="grid-template-columns:1fr 1fr"><div class="stat"><span>Pots won</span><b class="pos">' + money(me.won) + '</b></div><div class="stat"><span>Fines</span><b class="neg">' + money(me.fines) + '</b></div><div class="stat"><span>Side bets</span><b class="' + (me.side < 0 ? 'neg' : (me.side > 0 ? 'pos' : '')) + '">' + signed(me.side || 0) + '</b></div><div class="stat"><span>Paid in</span><b>' + money(me.paid) + '</b></div></div>' +
       (ui.open.pay ? '<label class="lab" for="payAmt">Amount you paid ' + esc(b.bankName) + '</label><div class="field"><b class="sub" style="font-size:20px">$</b><input id="payAmt" type="number" inputmode="decimal" min="0" value="' + (owed || '') + '"></div>' +
         '<div class="row"><button class="btn ghost" data-a="toggleC" data-id="pay">Cancel</button><button class="btn" data-a="pay">Log payment</button></div>'
         : '<button class="btn" data-a="toggleC" data-id="pay">Log a payment</button>') +
       (ui.lastPaid ? '<div class="banner" style="background:#232A12;border-color:#4B5A1C;color:#E4F5B8">The group can see your payment. Now send ' + money(ui.lastPaid) + ' to ' + esc(b.bankName) + ' separately (Venmo, etc.).</div>' : '') + '</section>';
 
-    h += '<div class="row between" style="margin-top:8px"><h2 class="h">Everyone\'s balance</h2><span class="sub">Won ? fines + paid</span></div><div class="list">' +
+    h += '<div class="row between" style="margin-top:8px"><h2 class="h">Everyone\'s balance</h2><span class="sub">Pots ? fines   side bets + paid</span></div><div class="list">' +
       b.accounts.map(function (a, i) {
-        return '<div><span class="sub" style="width:20px">' + (i + 1) + '</span><div class="col grow" style="gap:1px">' + nameBtn(a.pid) + '<span class="sub" style="font-size:12px">Won ' + money(a.won) + '   Fines ' + money(a.fines) + '   Paid ' + money(a.paid) + '</span></div>' +
+        return '<div><span class="sub" style="width:20px">' + (i + 1) + '</span><div class="col grow" style="gap:1px">' + nameBtn(a.pid) + '<span class="sub" style="font-size:12px">Won ' + money(a.won) + '   Fines ' + money(a.fines) + (a.side ? '   Bets ' + signed(a.side) : '') + '   Paid ' + money(a.paid) + '</span></div>' +
           '<div class="col" style="align-items:flex-end;gap:0"><b class="num ' + (a.balance < 0 ? 'neg' : (a.balance > 0 ? 'pos' : '')) + '" style="font-size:17px">' + money(a.balance) + '</b>' + (a.balance < 0 ? '<span class="neg" style="font-size:11px;font-weight:800">OWES</span>' : '') + '</div></div>';
       }).join('') + '</div>';
 
+    h += '<h2 class="h" style="margin-top:8px">In open bets</h2><p class="sub">Money riding on side bets that have not been settled. It is not in anyone\'s balance until the bet pays out.</p>';
+    h += (b.openBets || []).length ? '<div class="list">' + b.openBets.map(function (o) {
+      return '<div><span class="grow">' + nameBtn(o.pid) + ' <span class="sub">' + o.count + (o.count === 1 ? ' bet' : ' bets') + '</span></span><b class="num">' + money(o.amount) + '</b></div>';
+    }).join('') + '</div>' : '<p class="sub">Nothing riding right now.</p>';
     h += '<h2 class="h" style="margin-top:8px">Bank log</h2>';
     h += b.log.length ? '<div class="list">' + b.log.map(function (l) {
-      var text = l.type === 'payment' ? person(l.pid) + ' logged a ' + money(l.amount) + ' payment' : person(l.pid) + ' settled the Week ' + l.week + ' pot at ' + money(l.amount);
+      var text = l.type === 'sidebet' ? 'Side bet (' + money(l.amount) + ' in play): ' + l.note : l.type === 'payment' ? person(l.pid) + ' logged a ' + money(l.amount) + ' payment' : person(l.pid) + ' settled the Week ' + l.week + ' pot at ' + money(l.amount);
       return '<div><span class="grow">' + esc(text) + '</span><span class="sub">' + esc(ago(l.ts)) + '</span></div>';
     }).join('') + '</div>' : '<p class="sub">Every settle and payment will be listed here with who did it.</p>';
     return h;
@@ -415,8 +436,159 @@ h2.h{font-size:18px}
       return '<div><span class="sub" style="width:20px">' + (i + 1) + '</span><span class="grow">' + nameBtn(r.pid, r.pid === S.me.pid ? ' (you)' : '') + '</span><b class="num" style="color:var(--lime)">' + fmt(r) + '</b></div>';
     }).join('') + '</div>';
   }
+  // ---------- side bets ----------
+  function betOf(id) { return (S.bets || []).filter(function (b) { return b.id === id; })[0] || null; }
+  function until(ts) {
+    var m = Math.round((new Date(ts).getTime() - Date.now()) / 60000);
+    if (m < 1) return 'under a minute';
+    if (m < 60) return m + ' min';
+    if (m < 60 * 48) return Math.floor(m / 60) + 'h' + (m % 60 && m < 600 ? ' ' + (m % 60) + 'm' : '');
+    return Math.round(m / 1440) + ' days';
+  }
+  function betters(side) {
+    return side.bettors.map(function (x) { return esc(person(x.pid)) + ' ' + money(x.amount) + (x.status === 'refunded' ? ' (back)' : ''); }).join(', ') || 'Nobody yet';
+  }
+  function winPays(bt, sideKey, amount) {
+    var mineIn = bt.mine && bt.mine.side === sideKey ? 0 : amount;
+    var own = bt.sides[sideKey].total + mineIn, other = bt.sides[sideKey === 'a' ? 'b' : 'a'].total;
+    return own > 0 ? amount / own * other : 0;
+  }
+  // The inside of a bet card: used in the feed and on the Challenges tab.
+  function betInner(bt) {
+    var done = bt.phase === 'settled' || bt.phase === 'void';
+    var when = bt.phase === 'open' ? 'Betting closes in ' + until(bt.closeAt) + ' (' + bt.closeText + ')'
+      : bt.phase === 'waiting' ? (bt.type === 'custom' ? 'Betting closed   waiting on ' + person(bt.proposer) + ' to call it' : 'Betting closed   settles after ' + bt.endText)
+      : bt.phase === 'void' ? 'Called off   everyone refunded' : 'Settled ' + ago(bt.settledAt) + (ago(bt.settledAt) === 'now' ? '' : ' ago');
+    var h = '<h3>' + esc(bt.prompt) + '</h3><span class="sub">' + esc(person(bt.proposer)) + '\'s bet' + (bt.stake ? '   ' + money(bt.stake) + ' each' : '') + '   ' + esc(when) + '</span>';
+    if (bt.progress) h += '<span class="sub">' + esc(bt.progress) + '</span>';
+    var pick = ui.betPick && ui.betPick.id === bt.id ? ui.betPick : null;
+    h += '<div class="sides">' + ['a', 'b'].map(function (k) {
+      var sd = bt.sides[k], label = k === 'a' ? bt.labelA : bt.labelB;
+      var can = bt.canBet.indexOf(k) !== -1;
+      var cls = 'sd' + (bt.mine && bt.mine.side === k ? ' on' : '') + (pick && pick.side === k ? ' on' : '') + (done && bt.winner === k ? ' win' : '') + (done && bt.winner && bt.winner !== k ? ' off' : '');
+      var inner = '<b>' + esc(label) + (done && bt.winner === k ? ' ?' : '') + '</b><span class="num">' + money(sd.total) + '</span><i>' + betters(sd) + '</i>';
+      return can ? '<button class="' + cls + '" data-a="betPick" data-id="' + esc(bt.id) + '" data-k="' + k + '" aria-pressed="' + !!(pick && pick.side === k) + '">' + inner + '</button>' : '<div class="' + cls + '">' + inner + '</div>';
+    }).join('') + '</div>';
+    if (pick && bt.canBet) {
+      var lab = pick.side === 'a' ? bt.labelA : bt.labelB;
+      h += '<div class="col" style="gap:8px">' + (bt.stake ? '<span class="sub">Everyone bets ' + money(bt.stake) + ' on this one.</span>'
+        : '<label class="lab" for="betAmt">Your bet on "' + esc(lab) + '"</label><div class="field"><b class="sub" style="font-size:20px">$</b><input id="betAmt" type="number" inputmode="decimal" min="1" placeholder="Any amount" data-bet="' + esc(bt.id) + '" data-k="' + pick.side + '" value="' + esc(pick.amount || '') + '"></div>') +
+        '<span class="sub" id="betPay">' + esc(payText(bt, pick.side, bt.stake || parseFloat(pick.amount))) + '</span>' +
+        '<div class="row"><button class="btn ghost" data-a="betCancel">Cancel</button><button class="btn" data-a="betPlace" data-id="' + esc(bt.id) + '">Lock it in</button></div>' +
+        '<span class="sub">Once you bet you cannot switch sides or pull out.</span></div>';
+    } else if (bt.canBet && bt.canBet.length === 1 && !done) {
+      h += '<span class="sub">This one is about you, so you can only back yourself.</span>';
+    }
+    if (bt.mine && !done) {
+      var wp = winPays(bt, bt.mine.side, bt.mine.amount);
+      h += '<span style="font-size:13px;font-weight:700" class="pos">You: ' + money(bt.mine.amount) + ' on "' + esc(bt.mine.side === 'a' ? bt.labelA : bt.labelB) + '"   locked' + (wp > 0 ? '   wins about +' + money(wp) : '') + '</span>';
+    }
+    if (done && bt.mine && bt.mine.net !== null) {
+      h += '<span style="font-size:13px;font-weight:700" class="' + (bt.mine.net < 0 ? 'neg' : 'pos') + '">' + (bt.mine.status === 'refunded' ? 'Your ' + money(bt.mine.amount) + ' came back' : 'You ' + (bt.mine.net < 0 ? 'lost ' + money(-bt.mine.net) : 'won ' + money(bt.mine.net))) + '</span>';
+    }
+    if (done && bt.resultBody) h += '<p>' + esc(bt.resultBody) + '</p>';
+    if (!done) h += '<span class="sub" style="font-size:12px">' + (bt.hiddenFrom.length ? 'Hidden from ' + esc(bt.hiddenFrom.map(person).join(', ')) + ' until it settles' : 'Open to everyone') + '</span>';
+    if (bt.canResolve) {
+      h += '<div class="col" style="gap:8px;border-top:1px solid var(--line);padding-top:10px"><span class="lab">Your call: close it out</span><div class="row" style="flex-wrap:wrap">' +
+        '<button class="pill lime" data-a="betResolve" data-id="' + esc(bt.id) + '" data-k="a">"' + esc(bt.labelA) + '" won</button>' +
+        '<button class="pill lime" data-a="betResolve" data-id="' + esc(bt.id) + '" data-k="b">"' + esc(bt.labelB) + '" won</button>' +
+        '<button class="pill" data-a="betResolve" data-id="' + esc(bt.id) + '" data-k="void">Void</button></div></div>';
+    } else if (bt.canVoid) {
+      h += '<button class="link" style="text-align:left;color:var(--dim)" data-a="betResolve" data-id="' + esc(bt.id) + '" data-k="void">Call it off (nobody else is in yet)</button>';
+    }
+    return h;
+  }
+  function payText(bt, sideKey, amount) {
+    if (!amount || isNaN(amount) || amount <= 0) return 'Enter an amount to see what a win pays.';
+    var other = bt.sides[sideKey === 'a' ? 'b' : 'a'].total;
+    if (other <= 0) return 'Nobody is on the other side yet. If nobody takes it, you get your ' + money(amount) + ' back.';
+    return 'If you win, you get your ' + money(amount) + ' back plus about ' + money(winPays(bt, sideKey, amount)) + ' (as the pool stands now).';
+  }
+  function betCard(bt) { return '<article class="ev ' + (bt.phase === 'settled' ? 'bet_result' : 'bet') + '"><span class="ic">' + IC.coin + '</span><div class="col grow" style="gap:8px">' + betInner(bt) + '</div></article>'; }
+  function sideBetsSection() {
+    var bets = S.bets || [];
+    var open = bets.filter(function (b) { return b.phase === 'open'; }), wait = bets.filter(function (b) { return b.phase === 'waiting'; });
+    var done = bets.filter(function (b) { return b.phase === 'settled' || b.phase === 'void'; });
+    var h = '<div class="row between"><h2 class="h">Side bets</h2><button class="pill lime" data-a="betNew">+ Propose a side bet</button></div>';
+    if (!bets.length) h += '<p class="sub">No side bets yet. Bet on whether someone gets his workouts in, set an over/under, match two guys (or two teams) head to head, or make up your own.</p>';
+    if (open.length) h += '<span class="lab">Open for betting</span>' + open.map(betCard).join('');
+    if (wait.length) h += '<span class="lab">Waiting on a result</span>' + wait.map(betCard).join('');
+    if (done.length) {
+      var show = ui.open.betsDone ? done : done.slice(0, 3);
+      h += '<span class="lab">Settled</span>' + show.map(betCard).join('');
+      if (done.length > 3 && !ui.open.betsDone) h += '<button class="link" style="text-align:left" data-a="toggleC" data-id="betsDone">Show ' + (done.length - 3) + ' more</button>';
+    }
+    return h;
+  }
+  function freshBet() { return { type: 'ou', team: false, A: [], B: [], stat: 'workouts', line: '', q: 'workouts', n: 1, scoring: 'total', period: 'week', close: '180', closeAt: '', hide: true, side: 'a', amount: '', prompt: '', labelA: '', labelB: '', hiddenFrom: [] }; }
+  function grabBet() {
+    var D = ui.bet; if (!D) return;
+    ['line', 'amount', 'prompt', 'labelA', 'labelB', 'closeAt'].forEach(function (k) { var el = document.getElementById('bet-' + k); if (el) D[k] = el.value; });
+  }
+  function betSheet() {
+    var D = ui.bet;
+    var ppl = S.people.filter(function (p) { return p.active; });
+    function chips(key, list, cur, act) { return '<div class="opts">' + list.map(function (o) { var on = Array.isArray(cur) ? cur.indexOf(o.id) !== -1 : cur === o.id; return '<button class="opt' + (on ? ' on' : '') + '" data-a="' + (act || 'bset') + '" data-k="' + key + '" data-id="' + esc(o.id) + '" aria-pressed="' + on + '"' + (o.off ? ' disabled' : '') + '>' + esc(o.label) + '</button>'; }).join('') + '</div>'; }
+    function block(label, inner) { return '<div class="col" style="gap:10px"><span class="lab">' + label + '</span>' + inner + '</div>'; }
+    function names(skip) { return ppl.filter(function (p) { return !skip || skip.indexOf(p.pid) === -1; }).map(function (p) { return { id: p.pid, label: p.name + (p.pid === S.me.pid ? ' (you)' : '') }; }); }
+    var multi = D.type === 'h2h' && D.team;
+    var subjects = D.type === 'custom' ? [] : D.A.concat(D.type === 'h2h' ? D.B : []);
+    var noWhoop = subjects.some(function (pid) { var p = who(pid); return !p || p.whoop !== 'connected'; });
+    var weekly = D.type === 'yn' && (D.q === 'week' || D.q === 'dormie');
+    var body = block('What kind of bet?', chips('type', [{ id: 'ou', label: 'Over / Under' }, { id: 'yn', label: 'Yes / No' }, { id: 'h2h', label: 'Head to head' }, { id: 'custom', label: 'Custom' }]));
+    var la = 'A', lb = 'B';
+
+    if (D.type === 'custom') {
+      body += '<div class="col" style="gap:10px"><label class="lab" for="bet-prompt">What is the bet?</label><textarea class="txt" id="bet-prompt" rows="2" maxlength="200" placeholder="Will Kremer wear the green shorts Saturday?">' + esc(D.prompt) + '</textarea></div>' +
+        '<div class="row"><div class="col grow" style="gap:6px"><label class="lab" for="bet-labelA">Answer A</label><input class="txt" id="bet-labelA" maxlength="24" placeholder="Yes" value="' + esc(D.labelA) + '"></div><div class="col grow" style="gap:6px"><label class="lab" for="bet-labelB">Answer B</label><input class="txt" id="bet-labelB" maxlength="24" placeholder="No" value="' + esc(D.labelB) + '"></div></div>' +
+        block('Hide it from (optional)', chips('hiddenFrom', names([S.me.pid]), D.hiddenFrom, 'btog')) +
+        '<p class="sub">You decide who won and close it out whenever you are ready. You can also void it.</p>';
+      la = D.labelA || 'Yes'; lb = D.labelB || 'No';
+    } else {
+      if (D.type === 'h2h') {
+        body += block('Match-up', chips('team', [{ id: 'solo', label: '1 vs 1' }, { id: 'team', label: 'Teams' }], D.team ? 'team' : 'solo', 'bteam'));
+        body += block(multi ? 'Team A' : 'First man', chips('A', names(D.B), multi ? D.A : D.A[0], multi ? 'btog' : 'bone'));
+        body += block(multi ? 'Team B (sizes can differ)' : 'Against', chips('B', names(D.A), multi ? D.B : D.B[0], multi ? 'btog' : 'bone'));
+        if (multi) body += block('How teams are scored', chips('scoring', [{ id: 'total', label: 'Combined total' }, { id: 'best', label: 'Best man' }, { id: 'avg', label: 'Team average' }], D.scoring));
+        la = D.A.length ? person(D.A[0]) + (D.A.length > 1 ? ' +' + (D.A.length - 1) : '') : 'Side A';
+        lb = D.B.length ? person(D.B[0]) + (D.B.length > 1 ? ' +' + (D.B.length - 1) : '') : 'Side B';
+      } else {
+        body += block('Who is it about?', chips('A', names(), D.A[0], 'bone'));
+        la = D.type === 'ou' ? 'Over' : 'Yes'; lb = D.type === 'ou' ? 'Under' : 'No';
+      }
+      if (D.type === 'yn') {
+        body += block('The question', chips('q', [{ id: 'workouts', label: 'Gets his workouts in' }, { id: 'week', label: 'Makes the week' }, { id: 'dormie', label: 'Avoids going dormie' }], D.q));
+        if (D.q === 'workouts') body += block('At least how many workouts?', '<div class="card row between" style="padding:10px"><button class="step" data-a="bn" data-id="-1" aria-label="One less">?</button><div><b style="font-size:34px">' + D.n + '</b> <span class="sub">' + (D.n === 1 ? 'workout' : 'workouts') + '</span></div><button class="step" data-a="bn" data-id="1" aria-label="One more">+</button></div>');
+      } else {
+        body += block('Measured by', chips('stat', (S.sbStats || []).map(function (x) { return { id: x.id, label: nice(x.label), off: x.whoop && noWhoop && subjects.length > 0 }; }), D.stat));
+        if (noWhoop && subjects.length) body += '<p class="sub">Strain bets need everyone in the bet to have WHOOP connected.</p>';
+      }
+      if (D.type === 'ou') {
+        var strain = D.stat === 'strain' || D.stat === 'beststrain';
+        body += '<div class="col" style="gap:10px"><label class="lab" for="bet-line">The line</label><div class="field"><input id="bet-line" type="number" inputmode="decimal" min="0" step="' + (strain ? '0.1' : '1') + '" placeholder="' + (strain ? '14.3' : '3') + '" value="' + esc(D.line) + '"></div>' +
+          '<span class="sub">' + (strain ? 'Strain lines are set to end in 5 (14.3 becomes 14.35), so it can never land on the line.' : 'The line is set to end in .5 (3 becomes 3.5), so it can never land on the line.') + '</span></div>';
+      }
+      var pers = [{ id: 'today', label: 'Today' }, { id: '24h', label: 'Next 24 hours' }, { id: 'week', label: 'This week' }, { id: 'nextweek', label: 'Next week' }, { id: 'season', label: 'Whole season' }];
+      if (weekly) pers = pers.slice(2, 4);
+      body += block('Over what stretch?', chips('period', pers, D.period));
+      body += '<button class="sw' + (D.hide ? ' on' : '') + '" data-a="bhide" role="switch" aria-checked="' + D.hide + '"><span>Hide from the ' + (subjects.length > 1 ? 'guys' : 'guy') + ' it is about</span><span class="k"></span></button>' +
+        '<p class="sub">' + (D.hide ? 'They will not see it or be able to bet until it settles.' : 'Everyone sees it. The people it is about can bet, but only on themselves to come through.') + '</p>';
+    }
+    var closes = [{ id: '60', label: '1 hour' }, { id: '180', label: '3 hours' }, { id: '1440', label: '24 hours' }];
+    if (D.type === 'custom') closes.push({ id: '10080', label: '1 week' });
+    else { if (D.period === 'nextweek') closes.push({ id: 'start', label: 'When the week starts' }); closes.push({ id: 'end', label: 'Until it is decided' }); }
+    closes.push({ id: 'pick', label: 'Pick a time' });
+    body += block('Betting stays open for', chips('close', closes, D.close)) +
+      (D.close === 'pick' ? '<input class="txt" id="bet-closeAt" type="datetime-local" aria-label="Betting closes at" value="' + esc(D.closeAt) + '">' : '') +
+      (D.type !== 'custom' ? '<p class="sub">Betting also stops the moment the outcome is decided.</p>' : '');
+    body += block('Your side', chips('side', [{ id: 'a', label: la }, { id: 'b', label: lb }], D.side)) +
+      '<div class="col" style="gap:10px"><label class="lab" for="bet-amount">' + (D.type === 'custom' ? 'The bet (everyone puts in this much)' : 'Your bet (others can bet any amount)') + '</label><div class="field"><b class="sub" style="font-size:20px">$</b><input id="bet-amount" type="number" inputmode="decimal" min="1" placeholder="10" value="' + esc(D.amount) + '"></div></div>' +
+      '<p class="sub">Bets are locked in once placed. Winners split the losing side\'s money in proportion to what they put in. If nobody takes the other side, everyone gets their money back.</p>';
+    return sheetWrap('Propose a side bet', body, '<button class="btn" data-a="betPost">Post the bet</button>');
+  }
+
   function viewChallenges() {
-    var c = S.challenges, h = '';
+    var c = S.challenges, h = sideBetsSection() + '<h2 class="h" style="margin-top:8px">Challenges</h2>';
     h += '<section class="card col" style="gap:12px"><div class="row between"><div class="col" style="gap:1px"><b style="font-size:17px">Weekly Strain</b><span class="sub">Total WHOOP day strain, Mon Sun   ' + c.strain.count + ' in</span></div>' +
       '<button class="pill' + (c.strain.joined ? '' : ' lime') + '" data-a="' + (c.strain.joined ? 'leave' : 'join') + '" data-id="strain">' + (c.strain.joined ? 'Leave' : 'Join') + '</button></div>';
     if (S.me.whoop !== 'connected' && c.strain.joined) h += '<p class="sub">You need WHOOP connected to score here.</p>';
@@ -582,9 +754,10 @@ h2.h{font-size:18px}
     var t = top();
     if (!t) { el.innerHTML = ''; return; }
     var keep = document.getElementById('logNote'); if (keep && t.t === 'log') ui.log.note = keep.value;
+    if (t.t === 'bet') grabBet();
     var body = document.getElementById('sheetBody');
     var y = body && el.getAttribute('data-key') === sheetKey(t) ? body.scrollTop : 0;
-    el.innerHTML = t.t === 'log' ? logSheet() : t.t === 'week' ? weekSheet(t.week) : t.t === 'profile' ? profileSheet(t.pid) : badgeSheet(t.id, t.pid);
+    el.innerHTML = t.t === 'log' ? logSheet() : t.t === 'bet' ? betSheet() : t.t === 'week' ? weekSheet(t.week) : t.t === 'profile' ? profileSheet(t.pid) : badgeSheet(t.id, t.pid);
     el.setAttribute('data-key', sheetKey(t));
     if (y) document.getElementById('sheetBody').scrollTop = y;
   }
@@ -597,7 +770,7 @@ h2.h{font-size:18px}
   }
 
   // ---------- main render ----------
-  var TABS = [['feed', 'Feed', IC.feed], ['tracker', 'Tracker', IC.grid], ['bets', 'Bets', IC.coin], ['challenges', 'Challenges', IC.trophy], ['me', 'Me', IC.me]];
+  var TABS = [['feed', 'Feed', IC.feed], ['tracker', 'Tracker', IC.grid], ['bets', 'Ledger', IC.coin], ['challenges', 'Challenges', IC.trophy], ['me', 'Me', IC.me]];
   function render() {
     if (!S) return;
     document.getElementById('hdrSub').textContent = S.week.label;
@@ -686,6 +859,49 @@ h2.h{font-size:18px}
       var v = parseFloat(val('payAmt')); if (isNaN(v) || v <= 0) { toast('Enter the amount you paid.', true); return; }
       api('payment', { amount: v }).then(function (j) { if (j) { ui.open.pay = false; ui.lastPaid = v; render(); } });
     },
+    betNew: function () { ui.bet = freshBet(); pushSheet({ t: 'bet' }); },
+    bset: function (id, el) {
+      grabBet(); var D = ui.bet, k = el.getAttribute('data-k');
+      D[k] = id;
+      if (k === 'type') { D.side = 'a'; D.close = id === 'custom' ? '1440' : '180'; if (id !== 'h2h') { D.B = []; D.A = D.A.slice(0, 1); } if (id === 'yn') D.stat = 'workouts'; }
+      if (D.type === 'yn' && (D.q === 'week' || D.q === 'dormie') && D.period !== 'week' && D.period !== 'nextweek') D.period = 'week';
+      if (D.close === 'start' && D.period !== 'nextweek') D.close = 'end';
+      renderSheet();
+    },
+    bone: function (id, el) { grabBet(); ui.bet[el.getAttribute('data-k')] = [id]; renderSheet(); },
+    btog: function (id, el) { grabBet(); var a = ui.bet[el.getAttribute('data-k')], i = a.indexOf(id); if (i === -1) a.push(id); else a.splice(i, 1); renderSheet(); },
+    bteam: function (id) { grabBet(); var D = ui.bet; D.team = id === 'team'; if (!D.team) { D.A = D.A.slice(0, 1); D.B = D.B.slice(0, 1); } renderSheet(); },
+    bhide: function () { grabBet(); ui.bet.hide = !ui.bet.hide; renderSheet(); },
+    bn: function (id) { grabBet(); ui.bet.n = Math.max(1, Math.min(30, ui.bet.n + parseInt(id, 10))); renderSheet(); },
+    betPost: function () {
+      grabBet(); var D = ui.bet;
+      var req = { type: D.type, side: D.side, amount: parseFloat(D.amount) };
+      if (!req.amount || req.amount < 1) { toast('Enter your bet (at least $1).', true); return; }
+      if (D.close === 'pick') { var dt = new Date(D.closeAt); if (!D.closeAt || isNaN(dt.getTime())) { toast('Pick when betting closes.', true); return; } req.closeAt = dt.toISOString(); }
+      else if (D.close === 'start' || D.close === 'end') req.closeMode = D.close; else req.closeMinutes = parseInt(D.close, 10);
+      if (D.type === 'custom') { req.prompt = D.prompt; req.labelA = D.labelA; req.labelB = D.labelB; req.hiddenFrom = D.hiddenFrom; }
+      else {
+        req.subjA = D.A; req.subjB = D.B; req.stat = D.stat; req.line = parseFloat(D.line); req.q = D.q; req.n = D.n; req.scoring = D.scoring; req.period = D.period; req.hide = D.hide;
+        if (!D.A.length) { toast('Pick who the bet is about.', true); return; }
+        if (D.type === 'ou' && isNaN(req.line)) { toast('Enter the over/under number.', true); return; }
+      }
+      api('betPropose', req).then(function (j) { if (!j) return; ui.bet = null; closeAll(); ui.tab = 'challenges'; render(); window.scrollTo(0, 0); });
+    },
+    betPick: function (id, el) { ui.betPick = { id: id, side: el.getAttribute('data-k'), amount: ui.betPick && ui.betPick.id === id ? val('betAmt') : '' }; render(); var f = document.getElementById('betAmt'); if (f) f.focus(); },
+    betCancel: function () { ui.betPick = null; render(); },
+    betPlace: function (id) {
+      var bt = betOf(id), pk = ui.betPick; if (!bt || !pk) return;
+      var amt = bt.stake || parseFloat(val('betAmt'));
+      if (!amt || isNaN(amt) || amt < 1) { toast('Enter your bet (at least $1).', true); return; }
+      if (!confirm('Bet ' + money(amt) + ' on "' + (pk.side === 'a' ? bt.labelA : bt.labelB) + '"? You cannot change it afterward.')) return;
+      api('betPlace', { id: id, side: pk.side, amount: amt }).then(function (j) { if (j) { ui.betPick = null; render(); } });
+    },
+    betResolve: function (id, el) {
+      var bt = betOf(id), w = el.getAttribute('data-k'); if (!bt) return;
+      var q = w === 'void' ? 'Call this bet off? Everyone gets their money back.' : 'Close the bet with "' + (w === 'a' ? bt.labelA : bt.labelB) + '" as the winner? This pays out right away.';
+      if (!confirm(q)) return;
+      api('betResolve', { id: id, winner: w }).then(done);
+    },
     join: function (id) { api('join', { challenge: id }).then(done); },
     leave: function (id) { if (!confirm('Leave this challenge?')) return; api('leave', { challenge: id }).then(done); },
     weight: function () { var v = parseFloat(val('wt')); if (isNaN(v)) { toast('Enter your weight.', true); return; } api('weight', { weight: v }).then(done); },
@@ -696,6 +912,14 @@ h2.h{font-size:18px}
     if (!el || ui.busy && el.getAttribute('data-a') !== 'closeSheet') return;
     var fn = ACT[el.getAttribute('data-a')];
     if (fn) fn(el.getAttribute('data-id'), el);
+  });
+
+  document.addEventListener('input', function (e) {
+    var el = e.target;
+    if (!el || el.id !== 'betAmt') return;
+    var bt = betOf(el.getAttribute('data-bet')), out = document.getElementById('betPay');
+    if (ui.betPick) ui.betPick.amount = el.value;
+    if (bt && out) out.textContent = payText(bt, el.getAttribute('data-k'), parseFloat(el.value));
   });
 
   // ---------- pull down to refresh ----------
@@ -709,7 +933,7 @@ h2.h{font-size:18px}
     document.addEventListener('touchstart', function (e) {
       y0 = null; pull = 0;
       if (!KEY || !S || ui.busy || e.touches.length !== 1 || !atTop()) return;
-      var t = top(); if (t && t.t === 'log') return;
+      var t = top(); if (t && (t.t === 'log' || t.t === 'bet')) return;
       y0 = e.touches[0].clientY;
     }, { passive: true });
     document.addEventListener('touchmove', function (e) {
@@ -738,7 +962,7 @@ h2.h{font-size:18px}
   function start() {
     if (!KEY) { renderKeyScreen(''); return; }
     var cached = lsGet('bcd_state');
-    if (cached && !S) { try { S = JSON.parse(cached); if (!S.badges || !S.stats) S = null; else render(); } catch (e) { S = null; } }
+    if (cached && !S) { try { S = JSON.parse(cached); if (!S.badges || !S.stats || !S.bets || !S.bank.openBets) S = null; else render(); } catch (e) { S = null; } }
     refresh(false);
   }
   document.addEventListener('visibilitychange', function () { if (!document.hidden && KEY && S) refresh(true); });
