@@ -403,7 +403,7 @@ nav.tabs button.on{color:var(--lime)}
     function opts(key, list) { return '<div class="opts">' + list.map(function (o) { var id = o.id || o, label = o.label || o; return '<button class="opt' + (L[key] === id ? ' on' : '') + '" data-a="set" data-k="' + key + '" data-id="' + esc(id) + '" aria-pressed="' + (L[key] === id) + '">' + esc(label) + '</button>'; }).join('') + '</div>'; }
     var ok = L.minutes >= S.rules.minTime;
     var body = '<div class="col" style="gap:10px"><span class="lab">Day</span>' + opts('date', days.map(function (d) { return { id: d.iso, label: d.today ? 'Today' : d.label }; })) + '</div>' +
-      '<div class="col" style="gap:10px"><span class="lab">What did you do?</span>' + opts('type', ['Run', 'Strength', 'Bike', 'Walk', 'Swim', 'Sports', 'Other']) + '</div>' +
+      '<div class="col" style="gap:10px"><span class="lab">What did you do?</span>' + opts('type', ['Run', 'Strength', 'Bike', 'Golf', 'Swim', 'Sports', 'Other']) + '</div>' +
       '<div class="col" style="gap:10px"><span class="lab">How long?</span><div class="card row between" style="padding:10px"><button class="step" data-a="mins" data-id="-5" aria-label="5 minutes less">−</button><div><b style="font-size:34px">' + L.minutes + '</b> <span class="sub">min</span></div><button class="step" data-a="mins" data-id="5" aria-label="5 minutes more">+</button></div>' +
       '<span style="font-size:13px" class="' + (ok ? 'pos' : 'neg') + '">' + (ok ? 'Counts toward your week' : 'Needs ' + S.rules.minTime + ' min to count') + '</span></div>' +
       '<div class="col" style="gap:10px"><span class="lab">Effort</span>' + opts('effort', ['Easy', 'Moderate', 'Hard']) + '</div>' +
