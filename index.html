@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>BC Dads WAG</title>
+<meta name="theme-color" content="#0E1013">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="BC Dads">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-180.png">
+<script>
+// ================================================================
+// BC Dads WAG - phone app  (v7.0, Nov 11, 2026)
+// The only line you may ever need to change is API_URL: it must be the
+// Apps Script web app address ending in /exec (same as Settings > redirect_url).
+// ================================================================
+var API_URL = 'https://url.us.m.mimecastprotect.com/s/OvubCKr6YRflPoYRUvhBYt5TAP4?domain=script.google.com';
+</script>
+<style>
+:root{--bg:#0E1013;--card:#171A1F;--line:#262A31;--line2:#2E333B;--text:#F2F3F5;--soft:#DDE1E6;--mid:#C3C8D0;--dim:#9AA1AC;--lime:#C8F04B;--gold:#F5C451;--red:#FF8A80;--orange:#FFB86B}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Arial,sans-serif;font-size:15px;line-height:1.4}
+button,input,textarea{font-family:inherit;color:inherit}
+button{cursor:pointer}
+h1,h2,h3,p{margin:0}
+.app{max-width:560px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column}
+header.top{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid #22262C;padding:calc(env(safe-area-inset-top) + 14px) 18px 12px;display:flex;justify-content:space-between;align-items:center;gap:12px}
+header.top h1{font-size:21px;font-weight:800;letter-spacing:-.3px}
+.sub{font-size:13px;color:var(--dim)}
+main{flex:1;padding:14px 14px 170px;display:flex;flex-direction:column;gap:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px}
+.row{display:flex;align-items:center;gap:10px}
+.between{justify-content:space-between}
+.col{display:flex;flex-direction:column;gap:4px}
+.grow{flex:1;min-width:0}
+.big{font-size:22px;font-weight:800}
+.num{font-weight:800;font-variant-numeric:tabular-nums}
+.pill{min-height:38px;padding:0 14px;border-radius:999px;border:1px solid var(--line2);background:transparent;color:var(--mid);font-size:14px;font-weight:600;display:inline-flex;align-items:center;gap:6px}
+.pill.on{background:var(--text);color:var(--bg);border-color:var(--text)}
+.pill.lime{background:var(--lime);color:var(--bg);border-color:var(--lime)}
+.btn{min-height:50px;border-radius:999px;border:0;background:var(--lime);color:var(--bg);font-size:16px;font-weight:800;padding:0 20px;width:100%}
+.btn.ghost{background:transparent;color:var(--soft);border:1px solid var(--line2)}
+.btn:disabled{background:#22262C;color:#8A919C}
+.tag{font-size:11px;font-weight:800;letter-spacing:.6px;padding:4px 8px;border-radius:6px;border:1px solid #3A4048;color:var(--mid);white-space:nowrap}
+.tag.lime{background:#232A12;color:var(--lime);border-color:#232A12}
+.av{width:40px;height:40px;border-radius:999px;color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;flex:none}
+.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.stat{background:var(--bg);border-radius:12px;padding:10px 12px}
+.stat span{display:block;font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.6px}
+.stat b{font-size:19px;font-weight:800}
+.ev{display:flex;gap:12px;align-items:flex-start;border-radius:16px;padding:14px 16px;border:1px solid var(--line);background:var(--card)}
+.ev .ic{width:36px;height:36px;flex:none;border-radius:10px;display:flex;align-items:center;justify-content:center;background:#22262C;color:var(--mid)}
+.ev h3{font-size:15px;font-weight:800}
+.ev p{font-size:14px;color:var(--mid)}
+.ev.inmoney{background:#241E0F;border-color:#5C4718}.ev.inmoney h3,.ev.inmoney .ic{color:var(--gold)}.ev.inmoney .ic{background:#3A2F12}
+.ev.buying{background:#261414;border-color:#5E2626}.ev.buying h3,.ev.buying .ic{color:var(--red)}.ev.buying .ic{background:#3B1A1A}
+.ev.dormie{background:#2A1C0E;border-color:#7A4A16}.ev.dormie h3,.ev.dormie .ic{color:var(--orange)}.ev.dormie .ic{background:#3D2810}
+.ev.nudge{border-style:dashed;border-color:#4A505A}.ev.nudge .ic{background:#232A12;color:var(--lime)}
+.ev.settle .ic,.ev.payment .ic{background:#232A12;color:var(--lime)}
+.dtag{font-size:11px;font-weight:900;letter-spacing:1px;padding:3px 7px;border-radius:6px;background:var(--orange);color:#2A1C0E;margin-right:8px}
+.acts{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.cm{border-top:1px solid var(--line);padding-top:12px;display:flex;flex-direction:column;gap:10px}
+.cm div{font-size:14px}.cm b{margin-right:6px}
+.field{display:flex;align-items:center;gap:8px;background:var(--bg);border:1px solid var(--line2);border-radius:14px;padding:0 14px;min-height:50px}
+.field input{flex:1;min-width:0;border:0;background:transparent;font-size:18px;font-weight:700;outline:none}
+input.txt,textarea.txt{width:100%;min-height:44px;border-radius:14px;border:1px solid var(--line2);background:var(--bg);padding:10px 14px;font-size:16px;outline:none}
+.dots{display:flex;gap:5px}.dot{width:13px;height:13px;border-radius:999px;border:2px solid #4A505A}.dot.f{background:var(--lime);border-color:var(--lime)}
+.st{font-size:11px;font-weight:800;letter-spacing:.5px;padding:3px 8px;border-radius:6px}
+.st.complete{background:#1E3320;color:#9BE29F}.st.eligible{background:#33301B;color:#F3E08A}.st.dormie{background:#3D2810;color:var(--orange)}.st.eliminated{background:#3B1A1A;color:var(--red)}.st.exempt,.st.inactive{background:#2A2D33;color:var(--dim)}
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:14px;background:var(--card)}
+table{border-collapse:separate;border-spacing:0;font-size:13px;width:100%}
+th,td{padding:9px 8px;text-align:center;white-space:nowrap;border-bottom:1px solid var(--line);border-right:1px solid var(--line)}
+th{font-weight:700;color:var(--mid);background:var(--card)}
+td:first-child,th:first-child{position:sticky;left:0;background:var(--card);text-align:left;z-index:1}
+td.complete{background:#1E3320;color:#C9F2CB}td.eligible{background:#33301B;color:#F3E08A}td.dormie{background:#4A3013;color:#FFD9A8}td.eliminated{background:#451E1E;color:#FFC7C2}td.exempt,td.inactive{background:#24272C;color:#7C838E}
+td.wk{color:var(--lime);font-weight:700}
+.list>div{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid #22262C}
+.list{background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+.neg{color:var(--red)}.pos{color:var(--lime)}
+nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:6;background:var(--bg);border-top:1px solid #22262C;padding-bottom:env(safe-area-inset-bottom)}
+nav.tabs div{max-width:560px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr)}
+nav.tabs button{border:0;background:transparent;color:var(--dim);height:62px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:11px;font-weight:700}
+nav.tabs button.on{color:var(--lime)}
+.fab{position:fixed;z-index:6;right:max(16px,calc(50% - 264px));bottom:calc(env(safe-area-inset-bottom) + 78px);min-height:52px;padding:0 20px;border-radius:999px;border:0;background:var(--lime);color:var(--bg);font-size:15px;font-weight:800;box-shadow:0 10px 30px rgba(0,0,0,.5);display:flex;align-items:center;gap:8px}
+.sheet{position:fixed;inset:0;z-index:10;background:var(--bg);display:flex;flex-direction:column;max-width:560px;margin:0 auto}
+.sheet header{padding:calc(env(safe-area-inset-top) + 12px) 12px 12px;display:flex;align-items:center;gap:6px;border-bottom:1px solid #22262C}
+.sheet .body{flex:1;overflow-y:auto;padding:18px 16px;display:flex;flex-direction:column;gap:20px}
+.sheet footer{padding:12px 16px calc(env(safe-area-inset-bottom) + 14px);border-top:1px solid #22262C}
+.x{width:44px;height:44px;border-radius:999px;border:0;background:transparent;display:flex;align-items:center;justify-content:center}
+.lab{font-size:13px;font-weight:700;color:var(--dim)}
+.opts{display:flex;flex-wrap:wrap;gap:8px}
+.opt{min-height:44px;padding:0 14px;border-radius:12px;border:1px solid var(--line2);background:var(--card);color:var(--soft);font-size:14px;font-weight:700}
+.opt.on{background:var(--lime);color:var(--bg);border-color:var(--lime)}
+.step{width:50px;height:50px;border-radius:12px;border:1px solid var(--line2);background:var(--bg);font-size:24px}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 150px);z-index:20;background:#F2F3F5;color:#0E1013;font-weight:700;font-size:14px;padding:10px 16px;border-radius:999px;max-width:90vw;text-align:center;display:none}
+.toast.err{background:#7A271A;color:#fff}
+.banner{background:#2A1C0E;border:1px solid #7A4A16;border-radius:14px;padding:12px 14px;font-size:14px;color:#EBD7BF}
+.empty{color:var(--dim);text-align:center;padding:30px 10px}
+.link{color:var(--lime);background:none;border:0;padding:0;font-weight:700;font-size:14px}
+.spin{opacity:.5}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="col" style="gap:1px"><h1>BC Dads WAG</h1><span class="sub" id="hdrSub">Loading...</span></div>
+    <button class="pill" id="refreshBtn" data-a="refresh" aria-label="Refresh">Refresh</button>
+  </header>
+  <main id="view"><div class="empty">Loading...</div></main>
+</div>
+<button class="fab" id="fab" data-a="openLog" style="display:none">+ Log workout</button>
+<nav class="tabs" id="tabs" style="display:none"><div></div></nav>
+<div id="sheet"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---------- storage + key ----------
+  function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  var urlKey = (new URLSearchParams(location.search).get('k') || '').trim();
+  var KEY = urlKey || lsGet('bcd_key') || '';
+  if (urlKey) lsSet('bcd_key', urlKey);
+  // The key stays in the address on purpose: "Add to Home Screen" saves the address, key included.
+
+  var S = null;                       // latest state from the server
+  var ui = { tab: 'feed', filter: 'all', open: {}, sheet: null, busy: false, lastPaid: null,
+             log: { date: '', type: 'Strength', minutes: 40, effort: 'Hard' } };
+  var view = document.getElementById('view');
+
+  // ---------- helpers ----------
+  function esc(s) { return String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function person(pid) { var p = (S.people || []).filter(function (x) { return x.pid === pid; })[0]; return p ? p.name : 'Someone'; }
+  function money(n) { var r = Math.round(n * 100) / 100, a = Math.abs(r); return (r < 0 ? '−' : '') + '$' + (a % 1 === 0 ? a : a.toFixed(2)); }
+  var PALETTE = ['#2F6FEB', '#C2410C', '#0F8A5F', '#8B5CF6', '#B45309', '#0E7490', '#BE185D', '#4D7C0F', '#6D28D9', '#B91C1C', '#1D4ED8', '#047857'];
+  function avatar(pid) {
+    var n = 0, name = person(pid);
+    for (var i = 0; i < pid.length; i++) n = (n * 31 + pid.charCodeAt(i)) % 997;
+    return '<span class="av" style="background:' + PALETTE[n % PALETTE.length] + '">' + esc(name.substring(0, 2).toUpperCase()) + '</span>';
+  }
+  function ago(ts) {
+    var t = new Date(ts).getTime();
+    if (isNaN(t)) return '';
+    var m = Math.round((Date.now() - t) / 60000);
+    if (m < 1) return 'now';
+    if (m < 60) return m + 'm';
+    if (m < 60 * 24) return Math.round(m / 60) + 'h';
+    var d = Math.round(m / 1440);
+    if (d === 1) return 'Yesterday';
+    if (d < 7) return d + 'd';
+    return new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
+  function nice(s) { s = String(s || '').replace(/[-_]/g, ' '); return s.charAt(0).toUpperCase() + s.slice(1); }
+  function dayNum(iso) { var p = iso.split('-'); return Math.floor(Date.UTC(+p[0], +p[1] - 1, +p[2]) / 86400000); }
+  function weekCount(pid) {
+    var w = S.matrix[S.week.current - 1]; if (!w) return 0;
+    var c = w.cells.filter(function (x) { return x.pid === pid; })[0];
+    return c ? c.count : 0;
+  }
+  function toast(msg, isErr) {
+    var t = document.getElementById('toast');
+    t.textContent = msg; t.className = 'toast' + (isErr ? ' err' : ''); t.style.display = 'block';
+    clearTimeout(toast.timer); toast.timer = setTimeout(function () { t.style.display = 'none'; }, isErr ? 5000 : 3200);
+  }
+  var IC = {
+    fire: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3c1 3 4.5 4.8 4.5 9a4.5 4.5 0 0 1-9 0c0-2.2 1-3.6 2.2-4.6 0 2 .8 3.1 2 3.4.2-3.1-.8-5.2.3-7.8z"/></svg>',
+    msg: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>',
+    trophy: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/></svg>',
+    coin: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M14.5 9.5c-.5-1-1.5-1.5-2.5-1.5-1.5 0-2.5.8-2.5 2s1 1.7 2.5 2 2.5.8 2.5 2-1 2-2.5 2c-1 0-2-.5-2.5-1.5M12 6.5v1.5M12 16v1.5"/></svg>',
+    flag: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg>',
+    clock: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2M9 2h6"/></svg>',
+    feed: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="4" y="4" width="16" height="6" rx="1.5"/><rect x="4" y="14" width="16" height="6" rx="1.5"/></svg>',
+    grid: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16M10 4v16"/></svg>',
+    me: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>',
+    back: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>'
+  };
+
+  // ---------- server ----------
+  function api(action, data, quiet) {
+    var body = { k: KEY, action: action };
+    for (var k in (data || {})) body[k] = data[k];
+    if (!quiet) setBusy(true);
+    return fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body), redirect: 'follow' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (!quiet) setBusy(false);
+        if (!j.ok) {
+          if (j.error === 'bad_key') { KEY = ''; lsSet('bcd_key', ''); renderKeyScreen('That code was not recognized.'); return null; }
+          toast(j.error || 'Something went wrong.', true); return null;
+        }
+        if (j.state) { S = j.state; lsSet('bcd_state', JSON.stringify(S)); }
+        if (j.message) toast(j.message);
+        return j;
+      })
+      .catch(function () { if (!quiet) { setBusy(false); toast('Could not reach the tracker. Check your connection.', true); } return null; });
+  }
+  function setBusy(b) { ui.busy = b; document.getElementById('refreshBtn').className = 'pill' + (b ? ' spin' : ''); }
+  function typing() { var a = document.activeElement; return !!(a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA')); }
+  function refresh(quiet) {
+    return api('state', {}, quiet).then(function (j) { if (j && !(quiet && (typing() || ui.sheet))) render(); });
+  }
+
+  // ---------- screens ----------
+  function renderKeyScreen(msg) {
+    document.getElementById('tabs').style.display = 'none';
+    document.getElementById('fab').style.display = 'none';
+    document.getElementById('hdrSub').textContent = 'Sign in';
+    view.innerHTML = '<div class="card col" style="gap:14px"><h2 class="big">Enter your code</h2>' +
+      '<p class="sub">Open the personal link you were texted, or paste the code from the end of it (the part after k=).</p>' +
+      (msg ? '<p class="neg">' + esc(msg) + '</p>' : '') +
+      '<input class="txt" id="keyInput" placeholder="Your code" autocapitalize="off" autocomplete="off">' +
+      '<button class="btn" data-a="saveKey">Continue</button></div>';
+  }
+
+  function eventCard(it) {
+    var icon = { inmoney: IC.trophy, buying: IC.coin, dormie: IC.flag, nudge: IC.clock, recap: IC.trophy, settle: IC.coin, payment: IC.coin }[it.type] || IC.clock;
+    return '<article class="col" style="gap:8px"><div class="ev ' + esc(it.type) + '"><span class="ic">' + icon + '</span><div class="col grow">' +
+      '<h3>' + (it.type === 'dormie' ? '<span class="dtag">DORMIE</span>' : '') + esc(it.title) + '</h3><p>' + esc(it.body) + '</p>' +
+      '<span class="sub" style="font-size:12px">' + esc(ago(it.ts)) + '</span>' + actions(it) + '</div></div></article>';
+  }
+  function actions(it) {
+    var n = it.comments.length;
+    var h = '<div class="acts" style="margin-top:6px"><button class="pill' + (it.fired ? ' lime' : '') + '" data-a="fire" data-id="' + esc(it.id) + '" aria-pressed="' + it.fired + '" aria-label="Fire">' + IC.fire + '<span>' + it.fires + '</span></button>' +
+      '<button class="pill" data-a="toggleC" data-id="' + esc(it.id) + '">' + IC.msg + '<span>' + (n === 0 ? 'Comment' : n + (n === 1 ? ' comment' : ' comments')) + '</span></button>' +
+      (it.canDelete ? '<button class="link" style="color:var(--dim);margin-left:auto" data-a="delW" data-id="' + esc(it.id) + '">Delete</button>' : '') + '</div>';
+    if (ui.open[it.id]) {
+      h += '<div class="cm">' + it.comments.map(function (c) { return '<div><b>' + esc(person(c.pid)) + '</b><span style="color:var(--mid)">' + esc(c.text) + '</span></div>'; }).join('') +
+        '<div class="row"><input class="txt" id="c-' + esc(it.id) + '" placeholder="Add a comment" maxlength="500" aria-label="Add a comment">' +
+        '<button class="pill lime" data-a="sendC" data-id="' + esc(it.id) + '">Post</button></div></div>';
+    }
+    return h;
+  }
+  function workoutCard(it) {
+    var badge = it.source === 'whoop' ? '<span class="tag">WHOOP</span>' : (it.source === 'sms' ? '<span class="tag">TEXT</span>' : '<span class="tag lime">LOGGED</span>');
+    var second = it.source === 'whoop' ? ['Strain', it.strain === null ? '--' : it.strain.toFixed(1)] : ['Effort', it.effort || '--'];
+    return '<article class="card col" style="gap:14px"><div class="row">' + avatar(it.pid) +
+      '<div class="col grow" style="gap:1px"><b>' + esc(person(it.pid)) + '</b><span class="sub" style="font-size:12px">' + esc(nice(it.activity || 'Workout')) + ' · ' + esc(ago(it.ts)) + '</span></div>' + badge + '</div>' +
+      (it.minutes === null ? '<p style="color:var(--soft)">' + (it.source === 'sms' ? 'Texted in a workout.' : 'Logged a workout.') + ' Week: ' + weekCount(it.pid) + '/' + S.rules.minDays + '</p>' :
+      '<div class="stats"><div class="stat"><span>Time</span><b>' + it.minutes + 'm</b></div>' +
+      '<div class="stat"><span>' + second[0] + '</span><b style="color:var(--lime)">' + esc(second[1]) + '</b></div>' +
+      '<div class="stat"><span>Week</span><b>' + weekCount(it.pid) + '/' + S.rules.minDays + '</b></div></div>') +
+      (it.note ? '<p style="color:var(--soft)">' + esc(it.note) + '</p>' : '') +
+      (!it.ok ? '<p class="sub">Does not count toward the week (under ' + S.rules.minTime + ' min' + (it.source === 'whoop' ? ' or strain ' + S.rules.minEffort : '') + ').</p>' : '') +
+      actions(it) + '</article>';
+  }
+  function myWeekCard() {
+    var w = S.matrix[S.week.current - 1]; if (!w) return '';
+    var c = w.cells.filter(function (x) { return x.pid === S.me.pid; })[0]; if (!c) return '';
+    var dots = ''; for (var i = 0; i < S.rules.minDays; i++) dots += '<span class="dot' + (i < c.count ? ' f' : '') + '"></span>';
+    var text = { complete: 'Done — you are in the money', eligible: c.count + ' of ' + S.rules.minDays + ' done · ' + c.needed + ' to go', dormie: 'DORMIE — work out every day left', eliminated: 'Buying the bet this week (' + money(c.fine || 0) + ')', exempt: 'Week off', inactive: 'Inactive' }[c.status];
+    return '<section class="card row between"><div class="col"><span class="sub">Your week</span><b>' + esc(text) + '</b></div><div class="dots" role="img" aria-label="' + c.count + ' of ' + S.rules.minDays + '">' + dots + '</div></section>';
+  }
+  function viewFeed() {
+    var h = '';
+    if (S.me.whoop === 'reconnect') h += '<div class="banner">Your WHOOP got disconnected. Your past workouts are safe. <button class="link" data-a="connect">Reconnect WHOOP</button></div>';
+    h += '<div class="row">' + ['all', 'workouts', 'callouts'].map(function (f) { return '<button class="pill' + (ui.filter === f ? ' on' : '') + '" data-a="filter" data-id="' + f + '">' + nice(f) + '</button>'; }).join('') + '</div>';
+    h += myWeekCard();
+    var items = S.feed.filter(function (it) { return ui.filter === 'all' || (ui.filter === 'workouts') === (it.kind === 'w'); });
+    if (!items.length) h += '<div class="empty">Nothing here yet. Log a workout to get it started.</div>';
+    h += items.map(function (it) { return it.kind === 'w' ? workoutCard(it) : eventCard(it); }).join('');
+    return h;
+  }
+
+  var ST_LABEL = { complete: 'DONE', eligible: 'ON TRACK', dormie: 'DORMIE', eliminated: 'BUYING', exempt: 'OFF', inactive: 'OUT' };
+  function viewTracker() {
+    if (S.week.current < 1) return '<div class="empty">The challenge has not started yet.</div>';
+    var cur = S.matrix[S.week.current - 1];
+    var order = { eliminated: 0, dormie: 1, eligible: 2, complete: 3, exempt: 4, inactive: 5 };
+    var rows = cur.cells.filter(function (c) { return c.status !== 'inactive'; }).sort(function (a, b) { return order[a.status] - order[b.status] || person(a.pid).localeCompare(person(b.pid)); });
+    var h = '<h2 style="font-size:18px">This week</h2><div class="list">' + rows.map(function (c) {
+      var dots = ''; for (var i = 0; i < S.rules.minDays; i++) dots += '<span class="dot' + (i < c.count ? ' f' : '') + '"></span>';
+      return '<div><b class="grow">' + esc(person(c.pid)) + '</b><span class="dots">' + dots + '</span><span class="st ' + c.status + '">' + ST_LABEL[c.status] + '</span></div>';
+    }).join('') + '</div>';
+    var ppl = S.people.filter(function (p) { return p.active; });
+    h += '<h2 style="font-size:18px;margin-top:8px">Season</h2><p class="sub">Tap a week for the day-by-day view.</p><div class="tw"><table><thead><tr><th>Week</th>' +
+      ppl.map(function (p) { return '<th>' + esc(p.name) + '</th>'; }).join('') + '<th>Pot</th></tr></thead><tbody>';
+    S.matrix.slice().reverse().forEach(function (w) {
+      h += '<tr data-a="week" data-id="' + w.week + '"><td class="wk">Wk ' + w.week + ' <span class="sub" style="font-weight:400">' + esc(w.label.replace(/^Week \d+ /, '')) + '</span></td>';
+      ppl.forEach(function (p) { var c = w.cells.filter(function (x) { return x.pid === p.pid; })[0] || { count: '', status: '' }; h += '<td class="' + c.status + '">' + c.count + '</td>'; });
+      h += '<td>' + (w.betTotal ? money(w.betTotal) : '') + '</td></tr>';
+    });
+    h += '</tbody></table></div><p class="sub">Rules: ' + S.rules.minDays + ' workouts a week, each ' + S.rules.minTime + '+ min' + ' (WHOOP workouts also need strain ' + S.rules.minEffort + '+). Miss a week: ' + money(S.rules.baseBet) + ', doubling each week in a row.</p>';
+    return h;
+  }
+  function weekSheet(wk) {
+    var w = S.matrix[wk - 1]; if (!w) return '';
+    var ppl = S.people.filter(function (p) { return p.active; });
+    var h = '<div class="tw"><table><thead><tr><th>Day</th>' + ppl.map(function (p) { return '<th>' + esc(p.name) + '</th>'; }).join('') + '</tr></thead><tbody>';
+    var start = dayNum(w.start), today = dayNum(S.week.today), names = ['Thu', 'Fri', 'Sat', 'Sun', 'Mon', 'Tue', 'Wed'];
+    for (var i = 0; i < 7; i++) {
+      var d = new Date((start + i) * 86400000), iso = d.toISOString().substring(0, 10);
+      h += '<tr><td>' + names[((start + i) % 7 + 7) % 7] + ' ' + (d.getUTCMonth() + 1) + '/' + d.getUTCDate() + '</td>';
+      ppl.forEach(function (p) {
+        var hit = S.credits[p.pid] && S.credits[p.pid][iso];
+        var cell = w.cells.filter(function (x) { return x.pid === p.pid; })[0] || {};
+        var off = cell.status === 'exempt';
+        h += '<td' + (off ? ' class="exempt"' : '') + ' title="' + esc(hit ? hit.join(', ') : '') + '">' + (hit ? '<b class="pos">✓</b>' : (start + i > today || off ? '' : '<span class="neg">✗</span>')) + '</td>';
+      });
+      h += '</tr>';
+    }
+    h += '</tbody></table></div>';
+    h += '<div class="card col"><span class="sub">In the money</span><b>' + esc(w.inMoney.map(person).join(', ') || (w.isCurrent ? 'Nobody yet' : 'Nobody')) + '</b></div>';
+    h += '<div class="card col"><span class="sub">Buying the bet</span><b>' + esc(w.buying.map(function (b) { return person(b.pid) + ' (' + money(b.amount) + ')'; }).join(', ') || 'Nobody') + '</b></div>';
+    return sheetWrap(w.label, h, '');
+  }
+
+  function viewBets() {
+    var b = S.bank, h = '';
+    var me = b.accounts.filter(function (a) { return a.pid === S.me.pid; })[0] || { won: 0, fines: 0, paid: 0, balance: 0 };
+    if (!b.pots.length) h += '<div class="card"><b>No pots yet</b><p class="sub">A pot shows up here each Monday, funded by the fines from the week that just ended. Tracking starts with week ' + b.startWeek + '.</p></div>';
+    b.pots.forEach(function (p) {
+      var names = p.members.map(person).join(', ') || 'Nobody was in the money';
+      if (!p.settled) {
+        h += '<article class="card col" style="gap:14px;border-color:var(--lime)"><div class="row between"><div class="col" style="gap:1px"><b>' + esc(p.label) + '</b><span class="sub">Betting ' + esc(p.betDates) + '</span></div><span class="tag lime">LIVE</span></div>' +
+          '<div class="stats" style="grid-template-columns:1fr 1fr"><div class="stat"><span>Monday start</span><b style="color:var(--gold);font-size:24px">' + money(p.start) + '</b></div><div class="stat"><span>In the pot</span><b style="font-size:24px">' + p.members.length + (p.members.length === 1 ? ' guy' : ' guys') + '</b></div></div>' +
+          '<p class="sub">' + esc(names) + '</p>' +
+          (p.members.length ? '<label class="lab" for="pot-' + p.week + '">What is left after all the betting?</label><div class="field"><b class="sub" style="font-size:20px">$</b><input id="pot-' + p.week + '" type="number" inputmode="decimal" min="0" placeholder="Enter the new total"></div>' +
+          '<button class="btn" data-a="settle" data-id="' + p.week + '">Settle all bets</button>' : '') + '</article>';
+      } else {
+        h += '<article class="card col" style="gap:10px"><div class="row between"><div class="col" style="gap:1px"><b>' + esc(p.label) + '</b><span class="sub">Bet ' + esc(p.betDates) + '</span></div><span class="tag">SETTLED</span></div>' +
+          '<div class="row"><b class="sub" style="font-size:20px">' + money(p.start) + '</b><span class="sub">→</span><b style="font-size:24px" class="' + (p.end >= p.start ? 'pos' : 'neg') + '">' + money(p.end) + '</b><b style="margin-left:auto">' + money(p.each) + ' each</b></div>' +
+          '<p class="sub">' + esc(names) + ' · Settled by ' + esc(person(p.by)) + '</p>' +
+          (ui.open['pot' + p.week] ? '<div class="field"><b class="sub" style="font-size:20px">$</b><input id="pot-' + p.week + '" type="number" inputmode="decimal" min="0" placeholder="New total" aria-label="New total"></div><button class="btn" data-a="settle" data-id="' + p.week + '">Save new total</button>'
+            : '<button class="link" style="text-align:left" data-a="toggleC" data-id="pot' + p.week + '">Still rolling? Update the total</button>') + '</article>';
+      }
+    });
+
+    var owed = me.balance < 0 ? -me.balance : 0;
+    h += '<h2 style="font-size:18px;margin-top:8px">Your account</h2><section class="card col" style="gap:14px"><div class="row between"><b>' + esc(S.me.name) + '</b><b style="font-size:26px" class="' + (me.balance < 0 ? 'neg' : (me.balance > 0 ? 'pos' : '')) + '">' + money(me.balance) + '</b></div>' +
+      '<div class="stats"><div class="stat"><span>Won</span><b class="pos">' + money(me.won) + '</b></div><div class="stat"><span>Fines</span><b class="neg">' + money(me.fines) + '</b></div><div class="stat"><span>Paid</span><b>' + money(me.paid) + '</b></div></div>' +
+      (ui.open.pay ? '<label class="lab" for="payAmt">Amount you paid ' + esc(b.bankName) + '</label><div class="field"><b class="sub" style="font-size:20px">$</b><input id="payAmt" type="number" inputmode="decimal" min="0" value="' + (owed || '') + '"></div>' +
+        '<div class="row"><button class="btn ghost" data-a="toggleC" data-id="pay">Cancel</button><button class="btn" data-a="pay">Log payment</button></div>'
+        : '<button class="btn" data-a="toggleC" data-id="pay">Log a payment</button>') +
+      (ui.lastPaid ? '<div class="banner" style="background:#232A12;border-color:#4B5A1C;color:#E4F5B8">The group can see your payment. Now send ' + money(ui.lastPaid) + ' to ' + esc(b.bankName) + ' separately (Venmo, etc.).</div>' : '') + '</section>';
+
+    h += '<div class="row between" style="margin-top:8px"><h2 style="font-size:18px">Everyone\'s balance</h2><span class="sub">Won − fines + paid</span></div><div class="list">' +
+      b.accounts.map(function (a, i) {
+        return '<div><span class="sub" style="width:20px">' + (i + 1) + '</span><div class="col grow" style="gap:1px"><b>' + esc(person(a.pid)) + '</b><span class="sub" style="font-size:12px">Won ' + money(a.won) + ' · Fines ' + money(a.fines) + ' · Paid ' + money(a.paid) + '</span></div>' +
+          '<div class="col" style="align-items:flex-end;gap:0"><b class="num ' + (a.balance < 0 ? 'neg' : (a.balance > 0 ? 'pos' : '')) + '" style="font-size:17px">' + money(a.balance) + '</b>' + (a.balance < 0 ? '<span class="neg" style="font-size:11px;font-weight:800">OWES</span>' : '') + '</div></div>';
+      }).join('') + '</div>';
+
+    h += '<h2 style="font-size:18px;margin-top:8px">Bank log</h2>';
+    h += b.log.length ? '<div class="list">' + b.log.map(function (l) {
+      var text = l.type === 'payment' ? person(l.pid) + ' logged a ' + money(l.amount) + ' payment' : person(l.pid) + ' settled the Week ' + l.week + ' pot at ' + money(l.amount);
+      return '<div><span class="grow">' + esc(text) + '</span><span class="sub">' + esc(ago(l.ts)) + '</span></div>';
+    }).join('') + '</div>' : '<p class="sub">Every settle and payment will be listed here with who did it.</p>';
+    return h;
+  }
+
+  function viewChallenges() {
+    var c = S.challenges, h = '';
+    // Strain
+    h += '<section class="card col" style="gap:12px"><div class="row between"><div class="col" style="gap:1px"><b style="font-size:17px">Weekly Strain</b><span class="sub">Total WHOOP day strain, Mon–Sun · ' + c.strain.count + ' in</span></div>' +
+      '<button class="pill' + (c.strain.joined ? '' : ' lime') + '" data-a="' + (c.strain.joined ? 'leave' : 'join') + '" data-id="strain">' + (c.strain.joined ? 'Leave' : 'Join') + '</button></div>';
+    if (S.me.whoop !== 'connected' && c.strain.joined) h += '<p class="sub">You need WHOOP connected to score here.</p>';
+    h += board(c.strain.thisWeek, function (r) { return r.total.toFixed(1); }, 'No strain yet this week.');
+    if (c.strain.lastWeek.length) h += '<p class="sub">Last week: ' + esc(person(c.strain.lastWeek[0].pid)) + ' won with ' + c.strain.lastWeek[0].total.toFixed(1) + '.</p>';
+    h += '</section>';
+    // Weight
+    h += '<section class="card col" style="gap:12px"><div class="row between"><div class="col" style="gap:1px"><b style="font-size:17px">Weight</b><span class="sub">Ranked by % change · ' + c.weight.count + ' in</span></div>' +
+      '<button class="pill' + (c.weight.joined ? '' : ' lime') + '" data-a="' + (c.weight.joined ? 'leave' : 'join') + '" data-id="weight">' + (c.weight.joined ? 'Leave' : 'Join') + '</button></div>';
+    h += '<p class="sub">Only your percent change is shown to the group. Your actual weight stays private to you (and the spreadsheet owner).</p>';
+    if (c.weight.joined) {
+      h += '<div class="row"><div class="field grow"><input id="wt" type="number" inputmode="decimal" placeholder="Today\'s weight" aria-label="Today\'s weight"><b class="sub">lb</b></div><button class="pill lime" style="min-height:50px" data-a="weight">Save</button></div>';
+      if (c.weight.mine.length) h += '<p class="sub">Your weigh-ins: ' + c.weight.mine.map(function (m) { return m.date.substring(5).replace('-', '/') + ' — ' + m.weight; }).join(' · ') + '</p>';
+    }
+    h += board(c.weight.board, function (r) { return (r.pct > 0 ? '+' : '') + r.pct.toFixed(1) + '%'; }, 'No weigh-ins yet.');
+    h += '</section>';
+    return h;
+  }
+  function board(rows, fmt, emptyText) {
+    if (!rows.length) return '<p class="sub">' + emptyText + '</p>';
+    return '<div class="list" style="background:var(--bg)">' + rows.map(function (r, i) {
+      return '<div><span class="sub" style="width:20px">' + (i + 1) + '</span><b class="grow">' + esc(person(r.pid)) + (r.pid === S.me.pid ? ' (you)' : '') + '</b><b class="num" style="color:var(--lime)">' + fmt(r) + '</b></div>';
+    }).join('') + '</div>';
+  }
+
+  function viewMe() {
+    var w = { connected: ['Connected', 'pos'], reconnect: ['Disconnected — reconnect', 'neg'], none: ['Not connected', ''] }[S.me.whoop];
+    var h = '<section class="card col" style="gap:12px"><div class="row">' + avatar(S.me.pid) + '<div class="col" style="gap:1px"><b style="font-size:18px">' + esc(S.me.name) + '</b><span class="sub">' + esc(S.week.label) + '</span></div></div></section>';
+    h += '<section class="card col" style="gap:12px"><div class="row between"><b>WHOOP</b><b class="' + w[1] + '">' + w[0] + '</b></div>' +
+      '<p class="sub">' + (S.me.whoop === 'connected' ? 'Your WHOOP workouts post on their own, about once an hour.' : 'Connect WHOOP and your workouts post on their own. No WHOOP? Just use Log workout, or keep texting.') + '</p>' +
+      (S.me.whoop === 'connected' ? '' : '<button class="btn" data-a="connect">' + (S.me.whoop === 'reconnect' ? 'Reconnect WHOOP' : 'Connect WHOOP') + '</button>') + '</section>';
+    h += '<section class="card col" style="gap:8px"><b>Put this app on your home screen</b><p class="sub"><b>iPhone:</b> open your personal link in Safari, tap Share, then "Add to Home Screen".<br><b>Android:</b> open it in Chrome, tap the menu, then "Add to Home screen".</p></section>';
+    h += '<p class="sub" style="text-align:center">BC Dads WAG v' + esc(S.version) + '</p>';
+    return h;
+  }
+
+  // ---------- sheets (full-screen overlays) ----------
+  function sheetWrap(title, body, footer) {
+    return '<div class="sheet" role="dialog" aria-modal="true"><header><button class="x" data-a="closeSheet" aria-label="Close">' + IC.back + '</button><h2 style="font-size:19px">' + esc(title) + '</h2></header><div class="body">' + body + '</div>' + (footer ? '<footer>' + footer + '</footer>' : '') + '</div>';
+  }
+  function logSheet() {
+    var L = ui.log;
+    var days = S.week.days.filter(function (d) { return !d.future; });
+    if (!L.date || !days.some(function (d) { return d.iso === L.date; })) L.date = S.week.today;
+    function opts(key, list) { return '<div class="opts">' + list.map(function (o) { var id = o.id || o, label = o.label || o; return '<button class="opt' + (L[key] === id ? ' on' : '') + '" data-a="set" data-k="' + key + '" data-id="' + esc(id) + '" aria-pressed="' + (L[key] === id) + '">' + esc(label) + '</button>'; }).join('') + '</div>'; }
+    var ok = L.minutes >= S.rules.minTime;
+    var body = '<div class="col" style="gap:10px"><span class="lab">Day</span>' + opts('date', days.map(function (d) { return { id: d.iso, label: d.today ? 'Today' : d.label }; })) + '</div>' +
+      '<div class="col" style="gap:10px"><span class="lab">What did you do?</span>' + opts('type', ['Run', 'Strength', 'Bike', 'Walk', 'Swim', 'Sports', 'Other']) + '</div>' +
+      '<div class="col" style="gap:10px"><span class="lab">How long?</span><div class="card row between" style="padding:10px"><button class="step" data-a="mins" data-id="-5" aria-label="5 minutes less">−</button><div><b style="font-size:34px">' + L.minutes + '</b> <span class="sub">min</span></div><button class="step" data-a="mins" data-id="5" aria-label="5 minutes more">+</button></div>' +
+      '<span style="font-size:13px" class="' + (ok ? 'pos' : 'neg') + '">' + (ok ? 'Counts toward your week' : 'Needs ' + S.rules.minTime + ' min to count') + '</span></div>' +
+      '<div class="col" style="gap:10px"><span class="lab">Effort</span>' + opts('effort', ['Easy', 'Moderate', 'Hard']) + '</div>' +
+      '<div class="col" style="gap:10px"><label class="lab" for="logNote">Note</label><textarea class="txt" id="logNote" rows="3" maxlength="500" placeholder="How did it go? Trash talk welcome.">' + esc(L.note || '') + '</textarea></div>';
+    return sheetWrap('Log a workout', body, '<button class="btn" data-a="submitLog">Post to the feed</button>');
+  }
+  function renderSheet() {
+    var el = document.getElementById('sheet');
+    if (!ui.sheet) { el.innerHTML = ''; return; }
+    var keep = document.getElementById('logNote'); if (keep) ui.log.note = keep.value;
+    el.innerHTML = ui.sheet === 'log' ? logSheet() : weekSheet(ui.sheet.week);
+  }
+
+  // ---------- main render ----------
+  var TABS = [['feed', 'Feed', IC.feed], ['tracker', 'Tracker', IC.grid], ['bets', 'Bets', IC.coin], ['challenges', 'Challenges', IC.trophy], ['me', 'Me', IC.me]];
+  function render() {
+    if (!S) return;
+    document.getElementById('hdrSub').textContent = S.week.label;
+    var nav = document.getElementById('tabs');
+    nav.style.display = 'block';
+    nav.firstElementChild.innerHTML = TABS.map(function (t) { return '<button class="' + (ui.tab === t[0] ? 'on' : '') + '" data-a="tab" data-id="' + t[0] + '"' + (ui.tab === t[0] ? ' aria-current="page"' : '') + '>' + t[2] + t[1] + '</button>'; }).join('');
+    document.getElementById('fab').style.display = (ui.tab === 'feed' || ui.tab === 'tracker') && S.week.current >= 1 ? 'flex' : 'none';
+    view.innerHTML = { feed: viewFeed, tracker: viewTracker, bets: viewBets, challenges: viewChallenges, me: viewMe }[ui.tab]();
+    renderSheet();
+  }
+
+  // ---------- actions ----------
+  function val(id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; }
+  var ACT = {
+    refresh: function () { refresh(false); },
+    saveKey: function () { var v = val('keyInput'); if (!v) return; var m = v.match(/[?&]k=([^&\s]+)/); KEY = m ? m[1] : v; lsSet('bcd_key', KEY); start(); },
+    tab: function (id) { ui.tab = id; ui.lastPaid = null; render(); window.scrollTo(0, 0); },
+    filter: function (id) { ui.filter = id; render(); },
+    toggleC: function (id) { ui.open[id] = !ui.open[id]; render(); var f = document.getElementById(id === 'pay' ? 'payAmt' : (id.indexOf('pot') === 0 ? 'pot-' + id.substring(3) : 'c-' + id)); if (f && ui.open[id]) f.focus(); },
+    fire: function (id) {
+      var it = S.feed.filter(function (x) { return x.id === id; })[0];
+      if (it) { it.fired = !it.fired; it.fires += it.fired ? 1 : -1; render(); }   // instant, then confirm with the server
+      api('react', { target: id }, true).then(function (j) { if (j && !typing()) render(); });
+    },
+    sendC: function (id) { var t = val('c-' + id); if (!t) return; api('comment', { target: id, text: t }).then(function (j) { if (j) render(); }); },
+    delW: function (id) { if (!confirm('Delete this workout?')) return; api('deleteWorkout', { id: id }).then(function (j) { if (j) render(); }); },
+    openLog: function () { ui.sheet = 'log'; renderSheet(); },
+    closeSheet: function () { ui.sheet = null; renderSheet(); },
+    week: function (id) { ui.sheet = { week: parseInt(id, 10) }; renderSheet(); },
+    set: function (id, el) { ui.log[el.getAttribute('data-k')] = id; renderSheet(); },
+    mins: function (id) { ui.log.minutes = Math.max(5, Math.min(300, ui.log.minutes + parseInt(id, 10))); renderSheet(); },
+    submitLog: function () {
+      var L = ui.log; L.note = val('logNote');
+      api('logWorkout', { date: L.date, type: L.type, minutes: L.minutes, effort: L.effort, note: L.note }).then(function (j) {
+        if (!j) return; ui.sheet = null; L.note = ''; ui.tab = 'feed'; render(); window.scrollTo(0, 0);
+      });
+    },
+    settle: function (id) {
+      var v = val('pot-' + id); if (v === '' || isNaN(parseFloat(v))) { toast('Enter the total first.', true); return; }
+      api('settle', { week: id, amount: parseFloat(v) }).then(function (j) { if (j) { ui.open['pot' + id] = false; render(); } });
+    },
+    pay: function () {
+      var v = parseFloat(val('payAmt')); if (isNaN(v) || v <= 0) { toast('Enter the amount you paid.', true); return; }
+      api('payment', { amount: v }).then(function (j) { if (j) { ui.open.pay = false; ui.lastPaid = v; render(); } });
+    },
+    join: function (id) { api('join', { challenge: id }).then(function (j) { if (j) render(); }); },
+    leave: function (id) { if (!confirm('Leave this challenge?')) return; api('leave', { challenge: id }).then(function (j) { if (j) render(); }); },
+    weight: function () { var v = parseFloat(val('wt')); if (isNaN(v)) { toast('Enter your weight.', true); return; } api('weight', { weight: v }).then(function (j) { if (j) render(); }); },
+    connect: function () { if (S.me.connectUrl) window.open(S.me.connectUrl, '_blank'); else toast('WHOOP connect is not set up yet.', true); }
+  };
+  document.addEventListener('click', function (e) {
+    var el = e.target.closest ? e.target.closest('[data-a]') : null;
+    if (!el || ui.busy && el.getAttribute('data-a') !== 'closeSheet') return;
+    var fn = ACT[el.getAttribute('data-a')];
+    if (fn) fn(el.getAttribute('data-id'), el);
+  });
+
+  // ---------- start ----------
+  function start() {
+    if (!KEY) { renderKeyScreen(''); return; }
+    var cached = lsGet('bcd_state');
+    if (cached && !S) { try { S = JSON.parse(cached); render(); } catch (e) { S = null; } }
+    refresh(false);
+  }
+  document.addEventListener('visibilitychange', function () { if (!document.hidden && KEY && S) refresh(true); });
+  setInterval(function () { if (!document.hidden && KEY && S && !ui.busy) refresh(true); }, 90000);
+  start();
+})();
+</script>
+</body>
+</html>
+
