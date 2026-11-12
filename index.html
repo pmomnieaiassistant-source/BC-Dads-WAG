@@ -617,11 +617,11 @@ h2.h{font-size:18px}
     var la = 'A', lb = 'B';
 
     if (D.type === 'custom') {
-      body += '<div class="col" style="gap:10px"><label class="lab" for="bet-prompt">What is the bet?</label><textarea class="txt" id="bet-prompt" rows="2" maxlength="200" placeholder="Will Kremer wear the green shorts Saturday?">' + esc(D.prompt) + '</textarea></div>' +
+      body += '<div class="col" style="gap:10px"><label class="lab" for="bet-prompt">What is the bet?</label><textarea class="txt" id="bet-prompt" rows="2" maxlength="200" placeholder="Will Dionne try to count a coffee run for a workout this week?">' + esc(D.prompt) + '</textarea></div>' +
         '<div class="row"><div class="col grow" style="gap:6px"><label class="lab" for="bet-labelA">Answer A</label><input class="txt" id="bet-labelA" maxlength="24" placeholder="Yes" value="' + esc(D.labelA) + '"></div><div class="col grow" style="gap:6px"><label class="lab" for="bet-labelB">Answer B</label><input class="txt" id="bet-labelB" maxlength="24" placeholder="No" value="' + esc(D.labelB) + '"></div></div>' +
         block('Hide it from (optional)', chips('hiddenFrom', names([S.me.pid]), D.hiddenFrom, 'btog')) +
         '<p class="sub">You decide who won and close it out whenever you are ready. You can also void it.</p>';
-      la = D.labelA || 'Yes'; lb = D.labelB || 'No';
+      la = D.labelA || 'Option A'; lb = D.labelB || 'Option B';
     } else {
       if (D.type === 'h2h') {
         body += block('Match-up', chips('team', [{ id: 'solo', label: '1 vs 1' }, { id: 'team', label: 'Teams' }], D.team ? 'team' : 'solo', 'bteam'));
