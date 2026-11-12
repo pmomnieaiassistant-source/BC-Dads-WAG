@@ -71,6 +71,8 @@ main{flex:1;padding:14px 14px 170px;display:flex;flex-direction:column;gap:12px}
 .sd{display:flex;flex-direction:column;gap:2px;align-items:flex-start;text-align:left;min-height:64px;padding:10px 12px;border-radius:12px;border:1px solid var(--line2);background:var(--bg);color:var(--text);font-size:13px}
 button.sd{border-color:var(--lime)}
 .sd.on{background:#232A12;border-color:var(--lime)}.sd.win{border-color:var(--gold)}.sd.off{opacity:.55}
+.ev.tap{cursor:pointer}.openline{font-size:13px;font-weight:700;color:var(--gold)}
+.vs{display:grid;grid-template-columns:1fr auto 1fr auto;gap:8px;align-items:center}.vs .mid{color:var(--dim);font-size:12px}.vs .w{color:var(--lime);font-weight:800}.vs .l{color:var(--dim)}
 .sd b{font-size:15px}.sd i{font-style:normal;color:var(--dim);font-size:12px}
 .sw{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:50px;padding:0 14px;border-radius:14px;border:1px solid var(--line2);background:var(--card);width:100%;font-size:15px;font-weight:700;text-align:left}
 .sw span.k{width:46px;height:28px;border-radius:999px;background:#3A4048;position:relative;flex:none}
@@ -115,6 +117,7 @@ td.wk{color:var(--lime);font-weight:700}
 .bdg svg{opacity:.5}
 .bdg.got{background:#232A12;border-color:#4B5A1C;color:var(--lime)}
 .bdg.got.title{background:#241E0F;border-color:#5C4718;color:var(--gold)}
+.bdg.got.weekly{background:#10222B;border-color:#1F4A5C;color:#7FD4F5}
 .bdg.got svg{opacity:1}
 nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:6;background:var(--bg);border-top:1px solid #22262C;padding-bottom:env(safe-area-inset-bottom)}
 nav.tabs div{max-width:560px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr)}
@@ -124,6 +127,7 @@ nav.tabs button.on{color:var(--lime)}
 .sheet{position:fixed;inset:0;z-index:10;background:var(--bg);display:flex;flex-direction:column;max-width:560px;margin:0 auto}
 .sheet header{padding:calc(env(safe-area-inset-top) + 12px) 12px 12px;display:flex;align-items:center;gap:6px;border-bottom:1px solid #22262C}
 .sheet .body{flex:1;overflow-y:auto;padding:18px 16px 40px;display:flex;flex-direction:column;gap:16px}
+.sheet .body>*{flex-shrink:0}
 .sheet footer{padding:12px 16px calc(env(safe-area-inset-bottom) + 14px);border-top:1px solid #22262C}
 .x{width:44px;height:44px;border-radius:999px;border:0;background:transparent;display:flex;align-items:center;justify-content:center}
 .lab{font-size:13px;font-weight:700;color:var(--dim)}
@@ -184,7 +188,7 @@ h2.h{font-size:18px}
     if (n.length <= 1) return n.join('');
     return n.slice(0, -1).join(', ') + ' and ' + n[n.length - 1];
   }
-  function money(n) { var r = Math.round(n * 100) / 100, a = Math.abs(r); return (r < 0 ? '?' : '') + '$' + (a % 1 === 0 ? a : a.toFixed(2)); }
+  function money(n) { var r = Math.round(n * 100) / 100, a = Math.abs(r); return (r < 0 ? '-' : '') + '$' + (a % 1 === 0 ? a : a.toFixed(2)); }
   var PALETTE = ['#2F6FEB', '#C2410C', '#0F8A5F', '#8B5CF6', '#B45309', '#0E7490', '#BE185D', '#4D7C0F', '#6D28D9', '#B91C1C', '#1D4ED8', '#047857'];
   function avatar(pid, large) {
     var n = 0, p = who(pid), name = p ? p.name : '?';
@@ -294,13 +298,13 @@ h2.h{font-size:18px}
   function eventCard(it) {
     if (it.type === 'bet') {
       var bt = betOf(it.betId);
-      if (bt) return '<article class="col" style="gap:8px" id="p-' + esc(it.id) + '"><div class="ev bet"><span class="ic">' + IC.coin + '</span><div class="col grow" style="gap:8px">' + betInner(bt) + actions(it) + '</div></div></article>';
+      if (bt) return '<article class="col" style="gap:8px" id="p-' + esc(it.id) + '"><div class="ev bet tap" data-a="betOpen" data-id="' + esc(bt.id) + '"><span class="ic">' + IC.coin + '</span><div class="col grow" style="gap:8px">' + betInner(bt) + actions(it) + '</div></div></article>';
     }
     var icon = { bet: IC.coin, bet_result: IC.coin, bet_off: IC.coin, inmoney: IC.trophy, buying: IC.coin, dormie: IC.flag, nudge: IC.clock, recap: IC.trophy, settle: IC.coin, payment: IC.coin, wall: IC.msg, badge_gain: IC.medal, badge_loss: IC.medal }[it.type] || IC.clock;
     var title = it.pid ? '<button class="nm" style="font-weight:800" data-a="profile" data-id="' + esc(it.type === 'wall' && it.toPid ? it.toPid : it.pid) + '">' + esc(it.title) + '</button>' : esc(it.title);
     return '<article class="col" style="gap:8px" id="p-' + esc(it.id) + '"><div class="ev ' + esc(it.type) + '"><span class="ic">' + icon + '</span><div class="col grow">' +
       '<h3>' + (it.type === 'dormie' ? '<span class="dtag">DORMIE</span>' : '') + title + '</h3><p>' + esc(it.body) + '</p>' +
-      '<span class="sub" style="font-size:12px">' + esc(ago(it.ts)) + (it.badgeId ? ' \u00b7 <button class="link" style="font-size:12px" data-a="badge" data-id="' + esc(it.badgeId) + '">See the badge</button>' : '') + '</span>' + actions(it) + '</div></div></article>';
+      '<span class="sub" style="font-size:12px">' + esc(ago(it.ts)) + (it.badgeId ? ' \u00b7 <button class="link" style="font-size:12px" data-a="badge" data-id="' + esc(it.badgeId) + '">See the badge</button>' : '') + (it.betId && betOf(it.betId) ? ' \u00b7 <button class="link" style="font-size:12px" data-a="betOpen" data-id="' + esc(it.betId) + '">Bet details</button>' : '') + '</span>' + actions(it) + '</div></div></article>';
   }
   function workoutCard(it) {
     var badge = it.source === 'whoop' ? '<span class="tag">WHOOP</span>' : (it.source === 'sms' ? '<span class="tag">TEXT</span>' : '<span class="tag lime">LOGGED</span>');
@@ -356,7 +360,7 @@ h2.h{font-size:18px}
           '<span style="font-size:13px">' + (b.holders.length ? nameList(b.holders.map(function (x) { return x.pid; })) : '<span class="sub">Nobody yet</span>') + '</span></div></div>';
       }).join('') + '</div>';
     }
-    return h + group('title', 'Titles   change hands') + group('milestone', 'Milestones');
+    return h + group('weekly', 'Weekly   last week\'s best') + group('title', 'Titles   change hands') + group('milestone', 'Milestones');
   }
 
   var ST_LABEL = { complete: 'DONE', eligible: 'ON TRACK', dormie: 'DORMIE', eliminated: 'BUYING', exempt: 'OFF', inactive: 'OUT' };
@@ -412,7 +416,7 @@ h2.h{font-size:18px}
         : '<button class="btn" data-a="toggleC" data-id="pay">Log a payment</button>') +
       (ui.lastPaid ? '<div class="banner" style="background:#232A12;border-color:#4B5A1C;color:#E4F5B8">The group can see your payment. Now send ' + money(ui.lastPaid) + ' to ' + esc(b.bankName) + ' separately (Venmo, etc.).</div>' : '') + '</section>';
 
-    h += '<div class="row between" style="margin-top:8px"><h2 class="h">Everyone\'s balance</h2><span class="sub">Pots ? fines   side bets + paid</span></div><div class="list">' +
+    h += '<div class="row between" style="margin-top:8px"><h2 class="h">Everyone\'s balance</h2><span class="sub">Pots - fines   side bets + paid</span></div><div class="list">' +
       b.accounts.map(function (a, i) {
         return '<div><span class="sub" style="width:20px">' + (i + 1) + '</span><div class="col grow" style="gap:1px">' + nameBtn(a.pid) + '<span class="sub" style="font-size:12px">Won ' + money(a.won) + '   Fines ' + money(a.fines) + (a.side ? '   Bets ' + signed(a.side) : '') + '   Paid ' + money(a.paid) + '</span></div>' +
           '<div class="col" style="align-items:flex-end;gap:0"><b class="num ' + (a.balance < 0 ? 'neg' : (a.balance > 0 ? 'pos' : '')) + '" style="font-size:17px">' + money(a.balance) + '</b>' + (a.balance < 0 ? '<span class="neg" style="font-size:11px;font-weight:800">OWES</span>' : '') + '</div></div>';
@@ -445,66 +449,126 @@ h2.h{font-size:18px}
     if (m < 60 * 48) return Math.floor(m / 60) + 'h' + (m % 60 && m < 600 ? ' ' + (m % 60) + 'm' : '');
     return Math.round(m / 1440) + ' days';
   }
-  function betters(side) {
-    return side.bettors.map(function (x) { return esc(person(x.pid)) + ' ' + money(x.amount) + (x.status === 'refunded' ? ' (back)' : ''); }).join(', ') || 'Nobody yet';
-  }
-  function winPays(bt, sideKey, amount) {
-    var mineIn = bt.mine && bt.mine.side === sideKey ? 0 : amount;
-    var own = bt.sides[sideKey].total + mineIn, other = bt.sides[sideKey === 'a' ? 'b' : 'a'].total;
-    return own > 0 ? amount / own * other : 0;
-  }
-  // The inside of a bet card: used in the feed and on the Challenges tab.
-  function betInner(bt) {
+  function sideLabel(bt, k) { return k === 'a' ? bt.labelA : bt.labelB; }
+  function betters(bt, k) {
     var done = bt.phase === 'settled' || bt.phase === 'void';
-    var when = bt.phase === 'open' ? 'Betting closes in ' + until(bt.closeAt) + ' (' + bt.closeText + ')'
+    return bt.sides[k].bettors.filter(function (x) { return !done || bt.legacy || x.matched > 0 || bt.phase === 'void'; })
+      .map(function (x) { return esc(person(x.pid)) + ' ' + money(done && !bt.legacy && bt.phase !== 'void' ? x.matched : x.amount); }).join(', ') || 'Nobody yet';
+  }
+  function betWhen(bt) {
+    return bt.phase === 'open' ? 'Betting closes in ' + until(bt.closeAt) + ' (' + bt.closeText + ')'
       : bt.phase === 'waiting' ? (bt.type === 'custom' ? 'Betting closed   waiting on ' + person(bt.proposer) + ' to call it' : 'Betting closed   settles after ' + bt.endText)
       : bt.phase === 'void' ? 'Called off   everyone refunded' : 'Settled ' + ago(bt.settledAt) + (ago(bt.settledAt) === 'now' ? '' : ' ago');
-    var h = '<h3>' + esc(bt.prompt) + '</h3><span class="sub">' + esc(person(bt.proposer)) + '\'s bet' + (bt.stake ? '   ' + money(bt.stake) + ' each' : '') + '   ' + esc(when) + '</span>';
-    if (bt.progress) h += '<span class="sub">' + esc(bt.progress) + '</span>';
-    var pick = ui.betPick && ui.betPick.id === bt.id ? ui.betPick : null;
-    h += '<div class="sides">' + ['a', 'b'].map(function (k) {
-      var sd = bt.sides[k], label = k === 'a' ? bt.labelA : bt.labelB;
-      var can = bt.canBet.indexOf(k) !== -1;
+  }
+  function openLine(bt) {
+    if (bt.phase !== 'open' && bt.phase !== 'waiting') return '';
+    if (!bt.openSide) return bt.matched > 0 ? 'All ' + money(bt.matched * 2) + ' is matched. Anyone can reopen it by adding to a side.' : '';
+    var want = sideLabel(bt, bt.openSide === 'a' ? 'b' : 'a');
+    return bt.phase === 'open' ? money(bt.openAmount) + ' open   needs a taker on "' + want + '"' : money(bt.openAmount) + ' was never covered and will go back';
+  }
+  function myLine(bt) {
+    var m = bt.mine, done = bt.phase === 'settled' || bt.phase === 'void';
+    if (!m) return '';
+    if (!done) return '<span style="font-size:13px;font-weight:700" class="pos">You: ' + money(m.amount) + ' on "' + esc(sideLabel(bt, m.side)) + '"' + (m.open > 0 ? '   ' + money(m.matched) + ' matched, ' + money(m.open) + ' waiting' : '   all matched') + '</span>';
+    if (bt.phase === 'void' || m.net === null || (m.net === 0 && !bt.legacy)) return '<span style="font-size:13px;font-weight:700" class="sub">Your ' + money(m.amount) + ' came back</span>';
+    return '<span style="font-size:13px;font-weight:700" class="' + (m.net < 0 ? 'neg' : 'pos') + '">You ' + (m.net < 0 ? 'lost ' + money(-m.net) : 'won ' + money(m.net)) + (!bt.legacy && m.open > 0 ? '   ' + money(m.open) + ' was never covered and came back' : '') + '</span>';
+  }
+  function sideBoxes(bt, pickable) {
+    var done = bt.phase === 'settled' || bt.phase === 'void';
+    var pick = pickable && ui.betPick && ui.betPick.id === bt.id ? ui.betPick : null;
+    return '<div class="sides">' + ['a', 'b'].map(function (k) {
+      var sd = bt.sides[k], can = pickable && bt.canBet.indexOf(k) !== -1;
       var cls = 'sd' + (bt.mine && bt.mine.side === k ? ' on' : '') + (pick && pick.side === k ? ' on' : '') + (done && bt.winner === k ? ' win' : '') + (done && bt.winner && bt.winner !== k ? ' off' : '');
-      var inner = '<b>' + esc(label) + (done && bt.winner === k ? ' ?' : '') + '</b><span class="num">' + money(sd.total) + '</span><i>' + betters(sd) + '</i>';
+      var inner = '<b>' + esc(sideLabel(bt, k)) + (done && bt.winner === k ? ' ?' : '') + '</b><span class="num">' + money(done && !bt.legacy && bt.phase !== 'void' ? sd.matched : sd.total) + '</span><i>' + betters(bt, k) + '</i>';
       return can ? '<button class="' + cls + '" data-a="betPick" data-id="' + esc(bt.id) + '" data-k="' + k + '" aria-pressed="' + !!(pick && pick.side === k) + '">' + inner + '</button>' : '<div class="' + cls + '">' + inner + '</div>';
     }).join('') + '</div>';
-    if (pick && bt.canBet) {
-      var lab = pick.side === 'a' ? bt.labelA : bt.labelB;
-      h += '<div class="col" style="gap:8px">' + (bt.stake ? '<span class="sub">Everyone bets ' + money(bt.stake) + ' on this one.</span>'
-        : '<label class="lab" for="betAmt">Your bet on "' + esc(lab) + '"</label><div class="field"><b class="sub" style="font-size:20px">$</b><input id="betAmt" type="number" inputmode="decimal" min="1" placeholder="Any amount" data-bet="' + esc(bt.id) + '" data-k="' + pick.side + '" value="' + esc(pick.amount || '') + '"></div>') +
-        '<span class="sub" id="betPay">' + esc(payText(bt, pick.side, bt.stake || parseFloat(pick.amount))) + '</span>' +
-        '<div class="row"><button class="btn ghost" data-a="betCancel">Cancel</button><button class="btn" data-a="betPlace" data-id="' + esc(bt.id) + '">Lock it in</button></div>' +
-        '<span class="sub">Once you bet you cannot switch sides or pull out.</span></div>';
-    } else if (bt.canBet && bt.canBet.length === 1 && !done) {
-      h += '<span class="sub">This one is about you, so you can only back yourself.</span>';
-    }
-    if (bt.mine && !done) {
-      var wp = winPays(bt, bt.mine.side, bt.mine.amount);
-      h += '<span style="font-size:13px;font-weight:700" class="pos">You: ' + money(bt.mine.amount) + ' on "' + esc(bt.mine.side === 'a' ? bt.labelA : bt.labelB) + '"   locked' + (wp > 0 ? '   wins about +' + money(wp) : '') + '</span>';
-    }
-    if (done && bt.mine && bt.mine.net !== null) {
-      h += '<span style="font-size:13px;font-weight:700" class="' + (bt.mine.net < 0 ? 'neg' : 'pos') + '">' + (bt.mine.status === 'refunded' ? 'Your ' + money(bt.mine.amount) + ' came back' : 'You ' + (bt.mine.net < 0 ? 'lost ' + money(-bt.mine.net) : 'won ' + money(bt.mine.net))) + '</span>';
-    }
+  }
+  // The short version of a bet: used in the feed and on the Challenges tab. Tapping it opens the full details.
+  function betInner(bt) {
+    var done = bt.phase === 'settled' || bt.phase === 'void';
+    var h = '<h3>' + esc(bt.prompt) + '</h3><span class="sub">' + esc(person(bt.proposer)) + '\'s bet   ' + esc(betWhen(bt)) + '</span>';
+    if (bt.progress) h += '<span class="sub">' + esc(bt.progress) + '</span>';
+    h += sideBoxes(bt, false);
+    var ol = openLine(bt); if (ol) h += '<span class="openline">' + esc(ol) + '</span>';
+    h += myLine(bt);
     if (done && bt.resultBody) h += '<p>' + esc(bt.resultBody) + '</p>';
-    if (!done) h += '<span class="sub" style="font-size:12px">' + (bt.hiddenFrom.length ? 'Hidden from ' + esc(bt.hiddenFrom.map(person).join(', ')) + ' until it settles' : 'Open to everyone') + '</span>';
+    var cta = bt.canResolve ? 'Your call: close it out' : bt.canBet ? (bt.openSide ? 'Take "' + sideLabel(bt, bt.canBet) + '"' : bt.mine ? 'Add to your side' : 'Get in on it') : '';
+    h += '<div class="row between"><span class="sub" style="font-size:12px">' + (done ? '' : bt.hiddenFrom.length ? 'Hidden from ' + esc(bt.hiddenFrom.map(person).join(', ')) : 'Open to everyone') + '</span>' +
+      '<button class="pill' + (cta ? ' lime' : '') + '" data-a="betOpen" data-id="' + esc(bt.id) + '">' + esc(cta || 'Details') + '</button></div>';
+    return h;
+  }
+  function payText(bt, sideKey, amount) {
+    if (!amount || isNaN(amount) || amount <= 0) return 'Enter an amount to see how it lines up.';
+    var other = sideKey === 'a' ? 'b' : 'a', lab = sideLabel(bt, sideKey);
+    var cover = bt.openSide === other ? Math.min(amount, bt.openAmount) : 0, rest = Math.round((amount - cover) * 100) / 100;
+    if (cover > 0 && rest <= 0) return 'All ' + money(amount) + ' is matched right away. Win and you are up ' + money(amount) + '; lose and you are down ' + money(amount) + '.';
+    if (cover > 0) return money(cover) + ' is matched right away. The other ' + money(rest) + ' opens the bet on "' + lab + '" and waits for a taker. Whatever nobody covers comes back to you.';
+    return 'This puts ' + money(amount) + ' out on "' + lab + '" for someone to take. You win a dollar for every dollar that gets covered. Whatever nobody covers comes back to you.';
+  }
+  function betCard(bt) { return '<article class="ev tap ' + (bt.phase === 'settled' ? 'bet_result' : 'bet') + '" data-a="betOpen" data-id="' + esc(bt.id) + '"><span class="ic">' + IC.coin + '</span><div class="col grow" style="gap:8px">' + betInner(bt) + '</div></article>'; }
+
+  // The full details of one bet: who is matched against who, what is still open, and where you put money down.
+  function betDetailSheet(id) {
+    var bt = betOf(id);
+    if (!bt) return sheetWrap('Side bet', '<div class="empty">That bet is no longer here.</div>', '');
+    var done = bt.phase === 'settled' || bt.phase === 'void';
+    var status = { open: 'OPEN FOR BETTING', waiting: 'WAITING ON A RESULT', settled: 'SETTLED', 'void': 'CALLED OFF' }[bt.phase];
+    var h = '<section class="card col" style="gap:8px"><div class="row between" style="align-items:flex-start"><b style="font-size:18px;line-height:1.3">' + esc(bt.prompt) + '</b></div>' +
+      '<div class="row" style="flex-wrap:wrap"><span class="tag' + (bt.phase === 'open' ? ' lime' : '') + '">' + status + '</span></div>' +
+      '<span class="sub">Proposed by ' + esc(person(bt.proposer)) + '   ' + esc(betWhen(bt)) + '</span>' +
+      (bt.progress ? '<span class="sub">' + esc(bt.progress) + '</span>' : '') +
+      (done ? '' : '<span class="sub">' + (bt.hiddenFrom.length ? 'Hidden from ' + esc(bt.hiddenFrom.map(person).join(', ')) + ' until it settles' : 'Open to everyone') + '</span>') +
+      (done && bt.resultBody ? '<p style="color:var(--soft)">' + esc(bt.resultBody) + '</p>' : '') + myLine(bt) + '</section>';
+
+    // sides + betting
+    var pick = ui.betPick && ui.betPick.id === bt.id && bt.canBet.indexOf(ui.betPick.side) !== -1 ? ui.betPick : null;
+    h += '<span class="lab">' + (bt.canBet ? 'Tap a side to put money on it' : 'The two sides') + '</span>' + sideBoxes(bt, true);
+    if (!done && !bt.legacy) {
+      h += '<div class="list"><div><span class="grow">Matched</span><b class="num">' + money(bt.matched) + ' a side</b></div>' +
+        '<div><span class="grow">Still open</span><b class="num">' + (bt.openSide ? money(bt.openAmount) + ' on "' + esc(sideLabel(bt, bt.openSide)) + '"' : 'Nothing') + '</b></div></div>';
+    }
+    if (pick) {
+      h += '<div class="card col" style="gap:8px"><label class="lab" for="betAmt">Your money on "' + esc(sideLabel(bt, pick.side)) + '"</label><div class="field"><b class="sub" style="font-size:20px">$</b><input id="betAmt" type="number" inputmode="decimal" min="1" placeholder="' + (bt.openSide && bt.openSide !== pick.side ? bt.openAmount : 'Any amount') + '" data-bet="' + esc(bt.id) + '" data-k="' + pick.side + '" value="' + esc(pick.amount || '') + '"></div>' +
+        '<span class="sub" id="betPay">' + esc(payText(bt, pick.side, parseFloat(pick.amount))) + '</span>' +
+        '<div class="row"><button class="btn ghost" data-a="betCancel">Cancel</button><button class="btn" data-a="betPlace" data-id="' + esc(bt.id) + '">Lock it in</button></div>' +
+        '<span class="sub">Once it is in you cannot switch sides or pull it out.</span></div>';
+    } else if (bt.phase === 'open') {
+      var why = '';
+      if (bt.hiddenFrom.indexOf(S.me.pid) !== -1) why = '';
+      else if (bt.mine && bt.openSide === bt.mine.side) why = 'Your side has ' + money(bt.openAmount) + ' waiting for a taker. Nobody can add to "' + sideLabel(bt, bt.mine.side) + '" until someone takes "' + sideLabel(bt, bt.mine.side === 'a' ? 'b' : 'a') + '".';
+      else if (bt.mine && bt.canBet) why = bt.openSide ? 'You can cover the ' + money(bt.openAmount) + ' that is open, or put in more and reopen the bet on your side.' : 'The sides are even. Add any amount to "' + sideLabel(bt, bt.mine.side) + '" to reopen the bet.';
+      else if (!bt.mine && bt.canBet.length === 1 && bt.openSide) why = 'Right now only "' + sideLabel(bt, bt.canBet) + '" can be taken: ' + money(bt.openAmount) + ' is waiting on the other side. Take any amount. Put in more than ' + money(bt.openAmount) + ' and the extra reopens the bet on your side.';
+      else if (!bt.mine && bt.canBet.length === 1) why = 'This one is about you, so you can only back yourself.';
+      else if (!bt.mine && !bt.canBet) why = 'This one is about you, and the side you can back is waiting for a taker.';
+      else if (!bt.mine) why = 'The sides are even. Put any amount on either side to reopen the bet.';
+      if (why) h += '<p class="sub">' + esc(why) + '</p>';
+    }
+
+    // who is matched against who
+    if (bt.legacy) h += '<p class="sub">This bet was settled under the earlier rules, where winners split the losing side\'s money.</p>';
+    else if (bt.phase !== 'void') {
+      h += '<span class="lab">Who is matched against who</span>';
+      h += bt.pairs.length ? '<div class="list">' + bt.pairs.map(function (p) {
+        var aw = done && bt.winner === 'a', bw = done && bt.winner === 'b';
+        return '<div class="vs"><span class="' + (aw ? 'w' : bw ? 'l' : '') + '">' + esc(person(p.a)) + ' <span class="mid">' + esc(bt.labelA) + '</span></span><span class="mid">vs</span>' +
+          '<span class="' + (bw ? 'w' : aw ? 'l' : '') + '">' + esc(person(p.b)) + ' <span class="mid">' + esc(bt.labelB) + '</span></span><b class="num">' + money(p.amount) + '</b></div>';
+      }).join('') + '</div>' : '<p class="sub">Nobody is matched yet.</p>';
+      var waiting = [];
+      ['a', 'b'].forEach(function (k) { bt.sides[k].bettors.forEach(function (x) { var o = Math.round((x.amount - x.matched) * 100) / 100; if (o > 0) waiting.push('<div><span class="grow">' + esc(person(x.pid)) + ' <span class="sub">on "' + esc(sideLabel(bt, k)) + '"</span></span><b class="num">' + money(o) + '</b></div>'); }); });
+      if (waiting.length) h += '<span class="lab">' + (done ? 'Never covered   went back' : bt.phase === 'waiting' ? 'Never covered   goes back' : 'Waiting for a taker') + '</span><div class="list">' + waiting.join('') + '</div>';
+      if (!done) h += '<p class="sub">Money lines up dollar for dollar, oldest first. Each matched dollar wins or loses a dollar. Anything nobody covers goes back when the bet settles.</p>';
+    }
+
     if (bt.canResolve) {
-      h += '<div class="col" style="gap:8px;border-top:1px solid var(--line);padding-top:10px"><span class="lab">Your call: close it out</span><div class="row" style="flex-wrap:wrap">' +
+      h += '<div class="card col" style="gap:8px"><span class="lab">Your call: close it out</span><div class="row" style="flex-wrap:wrap">' +
         '<button class="pill lime" data-a="betResolve" data-id="' + esc(bt.id) + '" data-k="a">"' + esc(bt.labelA) + '" won</button>' +
         '<button class="pill lime" data-a="betResolve" data-id="' + esc(bt.id) + '" data-k="b">"' + esc(bt.labelB) + '" won</button>' +
         '<button class="pill" data-a="betResolve" data-id="' + esc(bt.id) + '" data-k="void">Void</button></div></div>';
     } else if (bt.canVoid) {
       h += '<button class="link" style="text-align:left;color:var(--dim)" data-a="betResolve" data-id="' + esc(bt.id) + '" data-k="void">Call it off (nobody else is in yet)</button>';
     }
-    return h;
+    return sheetWrap('Side bet', h, '');
   }
-  function payText(bt, sideKey, amount) {
-    if (!amount || isNaN(amount) || amount <= 0) return 'Enter an amount to see what a win pays.';
-    var other = bt.sides[sideKey === 'a' ? 'b' : 'a'].total;
-    if (other <= 0) return 'Nobody is on the other side yet. If nobody takes it, you get your ' + money(amount) + ' back.';
-    return 'If you win, you get your ' + money(amount) + ' back plus about ' + money(winPays(bt, sideKey, amount)) + ' (as the pool stands now).';
-  }
-  function betCard(bt) { return '<article class="ev ' + (bt.phase === 'settled' ? 'bet_result' : 'bet') + '"><span class="ic">' + IC.coin + '</span><div class="col grow" style="gap:8px">' + betInner(bt) + '</div></article>'; }
   function sideBetsSection() {
     var bets = S.bets || [];
     var open = bets.filter(function (b) { return b.phase === 'open'; }), wait = bets.filter(function (b) { return b.phase === 'waiting'; });
@@ -535,7 +599,7 @@ h2.h{font-size:18px}
     var subjects = D.type === 'custom' ? [] : D.A.concat(D.type === 'h2h' ? D.B : []);
     var noWhoop = subjects.some(function (pid) { var p = who(pid); return !p || p.whoop !== 'connected'; });
     var weekly = D.type === 'yn' && (D.q === 'week' || D.q === 'dormie');
-    var body = block('What kind of bet?', chips('type', [{ id: 'ou', label: 'Over / Under' }, { id: 'yn', label: 'Yes / No' }, { id: 'h2h', label: 'Head to head' }, { id: 'custom', label: 'Custom' }]));
+    var body = block('What kind of bet?', chips('type', [{ id: 'ou', label: 'Over / Under' }, { id: 'yn', label: 'Yes / No' }, { id: 'h2h', label: 'Head to head' }, { id: 'custom', label: 'Custom' }], D.type));
     var la = 'A', lb = 'B';
 
     if (D.type === 'custom') {
@@ -558,7 +622,7 @@ h2.h{font-size:18px}
       }
       if (D.type === 'yn') {
         body += block('The question', chips('q', [{ id: 'workouts', label: 'Gets his workouts in' }, { id: 'week', label: 'Makes the week' }, { id: 'dormie', label: 'Avoids going dormie' }], D.q));
-        if (D.q === 'workouts') body += block('At least how many workouts?', '<div class="card row between" style="padding:10px"><button class="step" data-a="bn" data-id="-1" aria-label="One less">?</button><div><b style="font-size:34px">' + D.n + '</b> <span class="sub">' + (D.n === 1 ? 'workout' : 'workouts') + '</span></div><button class="step" data-a="bn" data-id="1" aria-label="One more">+</button></div>');
+        if (D.q === 'workouts') body += block('At least how many workouts?', '<div class="card row between" style="padding:10px"><button class="step" data-a="bn" data-id="-1" aria-label="One less">-</button><div><b style="font-size:34px">' + D.n + '</b> <span class="sub">' + (D.n === 1 ? 'workout' : 'workouts') + '</span></div><button class="step" data-a="bn" data-id="1" aria-label="One more">+</button></div>');
       } else {
         body += block('Measured by', chips('stat', (S.sbStats || []).map(function (x) { return { id: x.id, label: nice(x.label), off: x.whoop && noWhoop && subjects.length > 0 }; }), D.stat));
         if (noWhoop && subjects.length) body += '<p class="sub">Strain bets need everyone in the bet to have WHOOP connected.</p>';
@@ -582,8 +646,8 @@ h2.h{font-size:18px}
       (D.close === 'pick' ? '<input class="txt" id="bet-closeAt" type="datetime-local" aria-label="Betting closes at" value="' + esc(D.closeAt) + '">' : '') +
       (D.type !== 'custom' ? '<p class="sub">Betting also stops the moment the outcome is decided.</p>' : '');
     body += block('Your side', chips('side', [{ id: 'a', label: la }, { id: 'b', label: lb }], D.side)) +
-      '<div class="col" style="gap:10px"><label class="lab" for="bet-amount">' + (D.type === 'custom' ? 'The bet (everyone puts in this much)' : 'Your bet (others can bet any amount)') + '</label><div class="field"><b class="sub" style="font-size:20px">$</b><input id="bet-amount" type="number" inputmode="decimal" min="1" placeholder="10" value="' + esc(D.amount) + '"></div></div>' +
-      '<p class="sub">Bets are locked in once placed. Winners split the losing side\'s money in proportion to what they put in. If nobody takes the other side, everyone gets their money back.</p>';
+      '<div class="col" style="gap:10px"><label class="lab" for="bet-amount">' + 'Your bet (others can take any amount)' + '</label><div class="field"><b class="sub" style="font-size:20px">$</b><input id="bet-amount" type="number" inputmode="decimal" min="1" placeholder="10" value="' + esc(D.amount) + '"></div></div>' +
+      '<p class="sub">Your money waits for someone to take the other side. It lines up dollar for dollar: each dollar that gets covered wins or loses a dollar. Whatever nobody covers comes back to you. Once it is in, it is locked.</p>';
     return sheetWrap('Propose a side bet', body, '<button class="btn" data-a="betPost">Post the bet</button>');
   }
 
@@ -673,13 +737,13 @@ h2.h{font-size:18px}
       }
     }
     body += '<div class="col" style="gap:10px"><span class="lab">What did you do?</span>' + opts('type', TYPES) + '</div>' +
-      '<div class="col" style="gap:10px"><span class="lab">How long?</span><div class="card row between" style="padding:10px"><button class="step" data-a="mins" data-id="-5" aria-label="5 minutes less">?</button><div><b style="font-size:34px">' + L.minutes + '</b> <span class="sub">min</span></div><button class="step" data-a="mins" data-id="5" aria-label="5 minutes more">+</button></div>' +
+      '<div class="col" style="gap:10px"><span class="lab">How long?</span><div class="card row between" style="padding:10px"><button class="step" data-a="mins" data-id="-5" aria-label="5 minutes less">-</button><div><b style="font-size:34px">' + L.minutes + '</b> <span class="sub">min</span></div><button class="step" data-a="mins" data-id="5" aria-label="5 minutes more">+</button></div>' +
       '<span style="font-size:13px" class="' + (ok ? 'pos' : 'neg') + '">' + (ok ? 'Counts toward your week' : 'Needs ' + S.rules.minTime + ' min to count') + '</span></div>' +
       '<div class="col" style="gap:10px"><span class="lab">Effort</span>' + opts('effort', ['Easy', 'Moderate', 'Hard']) + '</div>' + noteBox;
     return sheetWrap(editing ? 'Edit workout' : 'Log a workout', body, '<button class="btn" data-a="submitLog">' + (editing ? 'Save changes' : (dup.length ? 'Post anyway' : 'Post to the feed')) + '</button>');
   }
 
-  function badgeIcon(b) { return b.kind === 'title' ? IC.trophy : IC.medal; }
+  function badgeIcon(b) { return b.kind === 'title' || b.kind === 'weekly' ? IC.trophy : IC.medal; }
   function holds(b, pid) { return b.holders.filter(function (x) { return x.pid === pid; })[0] || null; }
   function profileSheet(pid) {
     var p = who(pid); if (!p) return sheetWrap('Profile', '<div class="empty">Not found.</div>', '');
@@ -740,9 +804,9 @@ h2.h{font-size:18px}
     if (!b) return sheetWrap('Badge', '<div class="empty">Not found.</div>', '');
     var mine = pid ? holds(b, pid) : null;
     var h = '<section class="card col" style="gap:10px;align-items:center;text-align:center"><span class="bdg got ' + b.kind + '" style="width:96px">' + badgeIcon(b) + '</span><b style="font-size:20px">' + esc(b.name) + '</b>' +
-      '<span class="tag">' + (b.kind === 'title' ? 'TITLE   CHANGES HANDS' : 'MILESTONE') + '</span><p style="color:var(--mid)">' + esc(b.desc) + '</p>' +
+      '<span class="tag">' + (b.kind === 'title' ? 'TITLE   CHANGES HANDS' : b.kind === 'weekly' ? 'WEEKLY   HELD FOR ONE WEEK' : 'MILESTONE') + '</span><p style="color:var(--mid)">' + esc(b.desc) + '</p>' +
       (pid ? '<p class="' + (mine ? 'pos' : 'sub') + '" style="font-weight:700">' + esc(person(pid)) + (mine ? ' has this' + (mine.detail ? '   ' + esc(mine.detail) : '') : ' has not earned this yet') + '</p>' : '') + '</section>';
-    h += '<span class="lab">' + (b.kind === 'title' ? 'Current holder' : 'Who has it') + '   ' + b.holders.length + '</span>';
+    h += '<span class="lab">' + (b.kind === 'milestone' ? 'Who has it' : 'Current holder') + '   ' + b.holders.length + '</span>';
     h += b.holders.length ? '<div class="list">' + b.holders.map(function (x) {
       return '<div>' + avatar(x.pid) + '<span class="grow">' + nameBtn(x.pid) + '</span><span class="sub">' + esc(x.detail) + '</span></div>';
     }).join('') + '</div>' : '<p class="sub">Nobody yet. It is up for grabs.</p>';
@@ -757,7 +821,7 @@ h2.h{font-size:18px}
     if (t.t === 'bet') grabBet();
     var body = document.getElementById('sheetBody');
     var y = body && el.getAttribute('data-key') === sheetKey(t) ? body.scrollTop : 0;
-    el.innerHTML = t.t === 'log' ? logSheet() : t.t === 'bet' ? betSheet() : t.t === 'week' ? weekSheet(t.week) : t.t === 'profile' ? profileSheet(t.pid) : badgeSheet(t.id, t.pid);
+    el.innerHTML = t.t === 'log' ? logSheet() : t.t === 'bet' ? betSheet() : t.t === 'betd' ? betDetailSheet(t.id) : t.t === 'week' ? weekSheet(t.week) : t.t === 'profile' ? profileSheet(t.pid) : badgeSheet(t.id, t.pid);
     el.setAttribute('data-key', sheetKey(t));
     if (y) document.getElementById('sheetBody').scrollTop = y;
   }
@@ -887,13 +951,14 @@ h2.h{font-size:18px}
       }
       api('betPropose', req).then(function (j) { if (!j) return; ui.bet = null; closeAll(); ui.tab = 'challenges'; render(); window.scrollTo(0, 0); });
     },
-    betPick: function (id, el) { ui.betPick = { id: id, side: el.getAttribute('data-k'), amount: ui.betPick && ui.betPick.id === id ? val('betAmt') : '' }; render(); var f = document.getElementById('betAmt'); if (f) f.focus(); },
-    betCancel: function () { ui.betPick = null; render(); },
+    betOpen: function (id) { var t = top(); if (t && t.t === 'betd' && t.id === id) return; ui.betPick = null; pushSheet({ t: 'betd', id: id }); },
+    betPick: function (id, el) { ui.betPick = { id: id, side: el.getAttribute('data-k'), amount: ui.betPick && ui.betPick.id === id ? val('betAmt') : '' }; renderSheet(); var f = document.getElementById('betAmt'); if (f) f.focus(); },
+    betCancel: function () { ui.betPick = null; renderSheet(); },
     betPlace: function (id) {
       var bt = betOf(id), pk = ui.betPick; if (!bt || !pk) return;
-      var amt = bt.stake || parseFloat(val('betAmt'));
+      var amt = parseFloat(val('betAmt'));
       if (!amt || isNaN(amt) || amt < 1) { toast('Enter your bet (at least $1).', true); return; }
-      if (!confirm('Bet ' + money(amt) + ' on "' + (pk.side === 'a' ? bt.labelA : bt.labelB) + '"? You cannot change it afterward.')) return;
+      if (!confirm('Put ' + money(amt) + ' on "' + (pk.side === 'a' ? bt.labelA : bt.labelB) + '"? You cannot change it afterward.')) return;
       api('betPlace', { id: id, side: pk.side, amount: amt }).then(function (j) { if (j) { ui.betPick = null; render(); } });
     },
     betResolve: function (id, el) {
@@ -962,7 +1027,7 @@ h2.h{font-size:18px}
   function start() {
     if (!KEY) { renderKeyScreen(''); return; }
     var cached = lsGet('bcd_state');
-    if (cached && !S) { try { S = JSON.parse(cached); if (!S.badges || !S.stats || !S.bets || !S.bank.openBets) S = null; else render(); } catch (e) { S = null; } }
+    if (cached && !S) { try { S = JSON.parse(cached); if (!S.badges || !S.stats || !S.bets || !S.bank.openBets || (S.bets[0] && !S.bets[0].pairs)) S = null; else render(); } catch (e) { S = null; } }
     refresh(false);
   }
   document.addEventListener('visibilitychange', function () { if (!document.hidden && KEY && S) refresh(true); });
