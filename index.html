@@ -243,11 +243,19 @@ h2.h{font-size:18px}
     var t = top();
     if (t && t.t === 'profile' && action !== 'profile') body.profile = t.pid;
     for (var k in (data || {})) body[k] = data[k];
-    if (!quiet) setBusy(true);
-    return fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body), redirect: 'follow' })
+    // Only actions that change something lock the screen. A plain refresh never blocks taps.
+    var lock = !quiet && action !== 'state', n = ++apiSeq, finished = false;
+    function finish() { if (finished) return; finished = true; if (!quiet) setBusy(-1, lock); }
+    if (!quiet) setBusy(1, lock);
+    // Give up after 45 seconds (2 minutes for a WHOOP sync) so a stuck request can never leave the app frozen.
+    var ctl = window.AbortController ? new AbortController() : null;
+    var timer = setTimeout(function () { if (ctl) ctl.abort(); finish(); }, action === 'syncNow' ? 120000 : 45000);
+    return fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body), redirect: 'follow', signal: ctl ? ctl.signal : undefined })
       .then(function (r) { return r.json(); })
       .then(function (j) {
-        if (!quiet) setBusy(false);
+        clearTimeout(timer); finish();
+        if (j.ok && j.state && n < apiApplied) delete j.state;      // an older answer arriving late must not overwrite newer data
+        if (j.ok && j.state) apiApplied = n;
         if (!j.ok) {
           if (j.error === 'bad_key') { KEY = ''; lsSet('bcd_key', ''); renderKeyScreen('That code was not recognized.'); return null; }
           toast(j.error || 'Something went wrong.', true); return null;
@@ -259,12 +267,18 @@ h2.h{font-size:18px}
         else if (j.message) toast(j.message);
         return j;
       })
-      .catch(function () { if (!quiet) { setBusy(false); toast('Could not reach the tracker. Check your connection.', true); } return null; });
+      .catch(function () { clearTimeout(timer); var was = finished; finish(); if (!quiet && !was) toast('Could not reach the tracker. Check your connection.', true); else if (!quiet) toast('That took too long. Pull down to try again.', true); return null; });
   }
-  function setBusy(b) { ui.busy = b; document.getElementById('refreshBtn').className = 'pill' + (b ? ' spin' : ''); document.getElementById('syncBtn').className = 'pill' + (b ? ' spin' : ''); }
+  var apiSeq = 0, apiApplied = 0, spinCount = 0, lockCount = 0;
+  // ui.busy = something that changes data is in flight (taps are held). The buttons spin for any visible request.
+  function setBusy(d, lock) {
+    spinCount = Math.max(0, spinCount + d); if (lock) lockCount = Math.max(0, lockCount + d);
+    ui.busy = lockCount > 0;
+    document.getElementById('refreshBtn').className = 'pill' + (spinCount ? ' spin' : ''); document.getElementById('syncBtn').className = 'pill' + (spinCount ? ' spin' : '');
+  }
   function typing() { var a = document.activeElement; return !!(a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA')); }
   function refresh(quiet) {
-    return api('state', {}, quiet).then(function (j) { if (j && !(quiet && (typing() || ui.stack.length))) render(); });
+    return api('state', {}, quiet).then(function (j) { if (j && j.state && !(typing() || (quiet && ui.stack.length))) render(); });
   }
   function done(j) { if (j) render(); }
 
