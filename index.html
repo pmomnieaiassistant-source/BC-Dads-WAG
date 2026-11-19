@@ -158,6 +158,7 @@ nav.tabs button.on{color:var(--lime)}
 .swc{position:relative;will-change:transform}
 .av.live{box-shadow:0 0 0 2px var(--card),0 0 0 4px #3DD68C}
 .av.idle{box-shadow:0 0 0 2px var(--card),0 0 0 4px var(--gold)}
+.pres{display:inline-block;width:9px;height:9px;border-radius:999px;margin-right:9px;vertical-align:middle;background:transparent;box-shadow:inset 0 0 0 1.5px #3A4048}.pres.live{background:#3DD68C;box-shadow:none}.pres.idle{background:var(--gold);box-shadow:none}
 .seen{display:inline-flex;align-items:center;gap:6px}.seen i{width:8px;height:8px;border-radius:999px;background:var(--dim)}.seen i.live{background:#3DD68C}.seen i.idle{background:var(--gold)}
 .pill.rx{gap:6px;padding:0 12px}.pill.rx svg{flex:none}.pill.rx.on{background:transparent;border-color:var(--lime);color:var(--lime)}
 .rpick{display:flex;gap:4px;padding:6px;border-radius:999px;background:#1E2228;border:1px solid var(--line2);width:max-content;max-width:100%;margin-top:8px}
@@ -232,9 +233,11 @@ h2.h{font-size:18px}
 
   // Last seen: green ring = had the app open in the last 5 minutes, yellow = in the last 30.
   function seenMin(pid) { var t = S && S.seen && S.seen[pid] ? Date.parse(S.seen[pid]) : NaN; return isNaN(t) ? Infinity : (Date.now() - t) / 60000; }
-  function seenCls(pid) { if (!S || !S.me || pid === S.me.pid) return ''; var m = seenMin(pid); return m < 5 ? 'live' : m < 30 ? 'idle' : ''; }
+  function seenCls(pid) { if (!S || !S.me) return ''; if (pid === S.me.pid) return 'live'; var m = seenMin(pid); return m < 5 ? 'live' : m < 30 ? 'idle' : ''; }
+  function seenDot(pid) { var c = seenCls(pid); return '<i class="pres' + (c ? ' ' + c : '') + '" aria-hidden="true"></i>'; }
   function seenTxt(pid) {
-    var m = seenMin(pid); if (m === Infinity) return '';
+    if (S && S.me && pid === S.me.pid) return 'Active now';
+    var m = seenMin(pid); if (m === Infinity) return 'Not active in the app yet';
     m = Math.floor(m);
     if (m < 1) return 'Active now';
     if (m < 60) return 'Last active ' + m + (m === 1 ? ' minute ago' : ' minutes ago');
@@ -547,9 +550,9 @@ h2.h{font-size:18px}
     var cur = S.matrix[S.week.current - 1];
     var order = { eliminated: 0, dormie: 1, eligible: 2, complete: 3, exempt: 4, inactive: 5 };
     var rows = cur.cells.filter(function (c) { return c.status !== 'inactive'; }).sort(function (a, b) { return order[a.status] - order[b.status] || person(a.pid).localeCompare(person(b.pid)); });
-    var h = '<h2 class="h">This week</h2><div class="list">' + rows.map(function (c) {
+    var h = '<div class="row between"><h2 class="h">This week</h2><span class="sub" style="font-size:12px">' + seenDot('_') .replace('pres', 'pres live') + 'In the app now<span style="display:inline-block;width:14px"></span>' + seenDot('_').replace('pres', 'pres idle') + 'Last 30 min</span></div><div class="list">' + rows.map(function (c) {
       var dots = ''; for (var i = 0; i < S.rules.minDays; i++) dots += '<span class="dot' + (i < c.count ? ' f' : '') + '"></span>';
-      return '<div><span class="grow">' + nameBtn(c.pid) + '</span><span class="dots">' + dots + '</span><span class="st ' + c.status + '">' + ST_LABEL[c.status] + '</span></div>';
+      return '<div><span class="grow">' + seenDot(c.pid) + nameBtn(c.pid) + '</span><span class="dots">' + dots + '</span><span class="st ' + c.status + '">' + ST_LABEL[c.status] + '</span></div>';
     }).join('') + '</div>';
     var ppl = S.people.filter(function (p) { return p.active; });
     h += '<h2 class="h" style="margin-top:8px">Season</h2><p class="sub">Tap a week for the day-by-day view.</p><div class="tw"><table><thead><tr><th>Week</th>' +
@@ -967,7 +970,7 @@ h2.h{font-size:18px}
     var acct = S.bank.accounts.filter(function (a) { return a.pid === pid; })[0];
     var bal = acct ? acct.balance : 0;
     var wLabel = { connected: 'WHOOP connected', reconnect: 'WHOOP disconnected', none: 'No WHOOP' }[p.whoop] || '';
-    var h = '<section class="card row">' + avatar(pid, true) + '<div class="col grow" style="gap:1px"><b style="font-size:20px">' + esc(p.name) + (pid === S.me.pid ? ' (you)' : '') + '</b><span class="sub">' + esc(wLabel) + '</span>' + (pid !== S.me.pid && seenTxt(pid) ? '<span class="sub seen"><i class="' + seenCls(pid) + '"></i>' + esc(seenTxt(pid)) + '</span>' : '') + '</div>' +
+    var h = '<section class="card row">' + avatar(pid, true) + '<div class="col grow" style="gap:1px"><b style="font-size:20px">' + esc(p.name) + (pid === S.me.pid ? ' (you)' : '') + '</b><span class="sub">' + esc(wLabel) + '</span>' + '<span class="sub seen"><i class="' + seenCls(pid) + '"></i>' + esc(seenTxt(pid)) + '</span>' + '</div>' +
       '<div class="col" style="align-items:flex-end;gap:0"><span class="sub">Balance</span><b class="num ' + (bal < 0 ? 'neg' : (bal > 0 ? 'pos' : '')) + '" style="font-size:20px">' + money(bal) + '</b></div></section>';
 
     h += '<div class="stats"><div class="stat"><span>Workouts</span><b>' + st.total + '</b></div><div class="stat"><span>Weeks made</span><b>' + st.complete + '/' + st.played + '</b></div><div class="stat"><span>Fines</span><b class="' + (st.fines ? 'neg' : '') + '">' + money(st.fines) + '</b></div>' +

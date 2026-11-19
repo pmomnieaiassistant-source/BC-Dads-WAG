@@ -1,6 +1,7 @@
 // ================================================================
 // BC Dads WAG - v7 backend
-// Version: Nov 19, 2026 - v7.9
+// Version: Nov 19, 2026 - v8.0
+//   - v8.0: last active also counts what people did in the app (comments, reactions, posts, logged workouts)
 //   - v7.9: general posts (text, @tags, photo) alongside workouts; owner can delete their post
 //   - v7.8: photos on workout posts (Drive folder, Photos tab). Run setupPhotos once to approve Drive access.
 //   - v7.7: reactions beyond fire, last-seen, What's new messages (Updates tab)
@@ -19,7 +20,7 @@
 // This ONE file replaces Code.gs, webapp.gs, appsheet_v6_bridge.gs and Index.html.
 // ================================================================
 
-var V7_VERSION = '7.9';
+var V7_VERSION = '8.0';
 var SB_GRACE_MIN = 90;            // side bets: how long after a period ends before a "didn't happen" is paid out (lets late WHOOP data arrive)
 var APP_SYNC_COOLDOWN_MIN = 5;   // the in-app Sync button pulls WHOOP at most this often, for the whole group
 
@@ -1284,9 +1285,23 @@ function seenMark_(me) {
     PropertiesService.getScriptProperties().setProperty('SEEN_' + me.pid, nowIso_());
   } catch (e) { Logger.log('seenMark_: ' + e.message); }
 }
-function seenAll_() {
+// Last active = the latest of: opening the app (recorded since v7.7) and anything they did in it
+// (comments, reactions, posts, wall posts, workouts logged in the app). The feed builder collects the activity.
+function actBump_(ctx, pid, ts) {
+  pid = str_(pid); ts = str_(ts);
+  if (!pid || !/^\d{4}-\d{2}-\d{2}T/.test(ts)) return;
+  var a = ctx._act || (ctx._act = {});
+  if (!a[pid] || Date.parse(ts) > Date.parse(a[pid])) a[pid] = ts;
+}
+function seenAll_(ctx) {
+  if (ctx) ctx.workouts.forEach(function(w) { if (str_(w.source).toLowerCase() === 'app') actBump_(ctx, w.participant_id, w.created_at); });
   var all = PropertiesService.getScriptProperties().getProperties(), out = {};
-  Object.keys(all).forEach(function(k) { if (k.indexOf('SEEN_') === 0) out[k.substring(5)] = all[k]; });
+  Object.keys((ctx && ctx._act) || {}).forEach(function(pid) { out[pid] = ctx._act[pid]; });
+  Object.keys(all).forEach(function(k) {
+    if (k.indexOf('SEEN_') !== 0) return;
+    var pid = k.substring(5);
+    if (!out[pid] || Date.parse(all[k]) > Date.parse(out[pid])) out[pid] = all[k];
+  });
   return out;
 }
 
@@ -1706,6 +1721,7 @@ function feedItems_(me, ctx, onlyPid, limit) {
     });
   });
   readTable_(TAB.EVENTS).forEach(function(e) {
+    if (e.type === 'post' || e.type === 'wall') actBump_(ctx, e.participant_id, e.created_at);
     if (str_(e.deleted)) return;
     if (onlyPid && e.participant_id !== onlyPid) return;
     items.push({ id: e.event_id, kind: 'e', type: e.type, pid: e.participant_id, ts: e.created_at, title: e.title, body: e.body,
@@ -1727,6 +1743,7 @@ function feedItems_(me, ctx, onlyPid, limit) {
 
   var reacts = {};
   readTable_(TAB.REACTIONS).forEach(function(r) {
+    actBump_(ctx, r.participant_id, r.created_at);
     var t = alias[r.target_id] || r.target_id, k = reactKind_(r);
     if (!reacts[t]) reacts[t] = {};
     if (!reacts[t][k]) reacts[t][k] = [];
@@ -1739,6 +1756,7 @@ function feedItems_(me, ctx, onlyPid, limit) {
   });
   var comments = {};
   readTable_(TAB.COMMENTS).forEach(function(c) {
+    actBump_(ctx, c.participant_id, c.created_at);
     var t = alias[c.target_id] || c.target_id;
     if (!comments[t]) comments[t] = [];
     comments[t].push({ id: c.comment_id, pid: c.participant_id, text: c.text, ts: c.created_at });
@@ -2013,7 +2031,7 @@ function buildState_(me, ctx) {
     matrix: ctx.matrix,
     credits: ctx.credits,
     feed: buildFeed_(me, ctx),
-    seen: seenAll_(),
+    seen: seenAll_(ctx),
     updates: updatesFor_(me),
     bets: sbState_(me, ctx, sbData_(ctx)),
     sbStats: Object.keys(SB_STATS).map(function(k) { return { id: k, label: SB_STATS[k].label, whoop: SB_STATS[k].whoop }; }),
