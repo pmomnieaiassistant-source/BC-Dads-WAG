@@ -755,12 +755,14 @@ h2.h{font-size:18px}
     if (!bets.length) h += '<p class="sub">No side bets yet. Bet on whether someone gets his workouts in, set an over/under, match two guys (or two teams) head to head, or make up your own.</p>';
     if (open.length) h += '<span class="lab">Open for betting</span>' + open.map(betCard).join('');
     if (wait.length) h += '<span class="lab">Waiting on a result</span>' + wait.map(betCard).join('');
-    // Settled bets stay tucked away behind one link; tap to show them all, tap again to hide.
-    if (done.length) {
-      h += '<button class="link" style="text-align:left" data-a="toggleC" data-id="betsDone" aria-expanded="' + !!ui.open.betsDone + '">' + (ui.open.betsDone ? 'Hide Settled Bets' : 'View Settled Bets (' + done.length + ')') + '</button>';
-      if (ui.open.betsDone) h += done.map(betCard).join('');
-    }
+    // Settled bets live on their own screen; this link opens it.
+    if (done.length) h += '<button class="link" style="text-align:left" data-a="betsDone">View Settled Bets (' + done.length + ')</button>';
     return h;
+  }
+  function settledBets() { return (S.bets || []).filter(function (b) { return b.phase === 'settled' || b.phase === 'void'; }); }
+  function betsDoneSheet() {
+    var done = settledBets();
+    return sheetWrap('Settled Bets (' + done.length + ')', done.length ? done.map(betCard).join('') : '<div class="empty">No settled bets yet.</div>', '');
   }
   function freshBet() { return { type: 'ou', team: false, A: [], B: [], stat: 'workouts', line: '', q: 'workouts', n: 1, scoring: 'total', period: 'week', close: '180', closeAt: '', hide: true, side: 'a', amount: '', prompt: '', labelA: '', labelB: '', hiddenFrom: [] }; }
   function grabBet() {
@@ -1037,7 +1039,7 @@ h2.h{font-size:18px}
     if (t.t === 'bet') grabBet();
     var body = document.getElementById('sheetBody');
     var y = body && el.getAttribute('data-key') === sheetKey(t) ? body.scrollTop : 0;
-    el.innerHTML = t.t === 'post' ? postSheet() : t.t === 'photo' ? photoSheet(t.id) : t.t === 'news' ? newsSheet() : t.t === 'newsAll' ? newsAllSheet() : t.t === 'feedback' ? feedbackSheet() : t.t === 'log' ? logSheet() : t.t === 'bet' ? betSheet() : t.t === 'betd' ? betDetailSheet(t.id) : t.t === 'week' ? weekSheet(t.week) : t.t === 'profile' ? profileSheet(t.pid) : badgeSheet(t.id, t.pid);
+    el.innerHTML = t.t === 'betsDone' ? betsDoneSheet() : t.t === 'post' ? postSheet() : t.t === 'photo' ? photoSheet(t.id) : t.t === 'news' ? newsSheet() : t.t === 'newsAll' ? newsAllSheet() : t.t === 'feedback' ? feedbackSheet() : t.t === 'log' ? logSheet() : t.t === 'bet' ? betSheet() : t.t === 'betd' ? betDetailSheet(t.id) : t.t === 'week' ? weekSheet(t.week) : t.t === 'profile' ? profileSheet(t.pid) : badgeSheet(t.id, t.pid);
     el.setAttribute('data-key', sheetKey(t));
     if (y) document.getElementById('sheetBody').scrollTop = y;
   }
@@ -1241,6 +1243,7 @@ h2.h{font-size:18px}
       var v = parseFloat(val('payAmt')); if (isNaN(v) || v <= 0) { toast('Enter the amount you paid.', true); return; }
       api('payment', { amount: v }).then(function (j) { if (j) { ui.open.pay = false; ui.lastPaid = v; render(); } });
     },
+    betsDone: function () { pushSheet({ t: 'betsDone' }); },
     betNew: function () { ui.bet = freshBet(); pushSheet({ t: 'bet' }); },
     bset: function (id, el) {
       grabBet(); var D = ui.bet, k = el.getAttribute('data-k');
