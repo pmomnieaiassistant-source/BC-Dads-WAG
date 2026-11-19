@@ -156,11 +156,11 @@ nav.tabs button.on{color:var(--lime)}
 .swa button{border:0;border-radius:16px;width:80px;font-weight:800;font-size:14px;color:#0E1013;background:var(--orange)}
 .swa button.del{background:var(--red)}
 .swc{position:relative;will-change:transform}
-.av.live{box-shadow:0 0 0 2px var(--card),0 0 0 4px #3DD68C}
+.av.live{box-shadow:0 0 0 2px var(--card),0 0 0 4px var(--gold)}
 .av.idle{box-shadow:0 0 0 2px var(--card),0 0 0 4px var(--gold)}
-/* Tracker: a thin rounded box around a name = green in the app now (5 min), yellow in the last 30 min */
-.pbox{display:inline-block;margin-left:-9px;padding:3px 8px;border-radius:9px;border:1.5px solid transparent}.pbox.live{border-color:#3DD68C}.pbox.idle{border-color:var(--gold)}
-.seen{display:inline-flex;align-items:center;gap:6px}.seen i{width:8px;height:8px;border-radius:999px;background:var(--dim)}.seen i.live{background:#3DD68C}.seen i.idle{background:var(--gold)}
+/* Tracker: a thin rounded box around a name = yellow = in the app in the last 30 min */
+.pbox{display:inline-block;margin-left:-9px;padding:3px 8px;border-radius:9px;border:1.5px solid transparent}.pbox.live{border-color:var(--gold)}.pbox.idle{border-color:var(--gold)}
+.seen{display:inline-flex;align-items:center;gap:6px}.seen i{width:8px;height:8px;border-radius:999px;background:var(--dim)}.seen i.live{background:var(--gold)}.seen i.idle{background:var(--gold)}
 .pill.rx{gap:6px;padding:0 12px}.pill.rx svg{flex:none}.pill.rx.on{background:transparent;border-color:var(--lime);color:var(--lime)}
 .rpick{display:flex;gap:4px;padding:6px;border-radius:999px;background:#1E2228;border:1px solid var(--line2);width:max-content;max-width:100%;margin-top:8px}
 .rpick button{width:54px;height:54px;border-radius:999px;border:0;background:transparent;color:var(--soft);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:10px;font-weight:700;letter-spacing:.02em}
@@ -232,7 +232,7 @@ h2.h{font-size:18px}
   var RL = { fire: 'Fire', beast: 'Beast', lol: 'LOL', clown: 'Clown', dead: 'Dead' };
   function rIcon(k) { return IC[k]; }
 
-  // Last seen: green ring = had the app open in the last 5 minutes, yellow = in the last 30.
+  // Last seen: yellow ring/box = had the app open in the last 30 minutes.
   function seenMin(pid) { var t = S && S.seen && S.seen[pid] ? Date.parse(S.seen[pid]) : NaN; return isNaN(t) ? Infinity : (Date.now() - t) / 60000; }
   function seenCls(pid) { if (!S || !S.me) return ''; if (pid === S.me.pid) return 'live'; var m = seenMin(pid); return m < 5 ? 'live' : m < 30 ? 'idle' : ''; }
   function seenTxt(pid) {
