@@ -31,8 +31,9 @@ button{cursor:pointer}
 h1,h2,h3,p{margin:0}
 /* The page itself never scrolls; only the feed area (main) does. iPhone home-screen apps misplace fixed bars
    when the whole page scrolls and redraws, so the header, tab bar and + button sit outside the scrolling part. */
-html,body{height:100%;overflow:hidden}
-.app{max-width:560px;margin:0 auto;height:100%;display:flex;flex-direction:column}
+/* 100vh, not 100%: in iPhone home-screen apps 100% can come out shorter than the screen (by the status bar), which lifts the tab bar. */
+html,body{height:100vh;overflow:hidden}
+.app{max-width:560px;margin:0 auto;height:100vh;display:flex;flex-direction:column}
 header.top{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid #22262C;padding:calc(env(safe-area-inset-top) + 14px) 18px 12px;display:flex;justify-content:space-between;align-items:center;gap:12px}
 header.top h1{font-size:21px;font-weight:800;letter-spacing:-.3px}
 .sub{font-size:13px;color:var(--dim)}
