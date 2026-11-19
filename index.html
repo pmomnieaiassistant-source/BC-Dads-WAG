@@ -13,6 +13,7 @@
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" href="icon-180.png">
 <script src="version.js"></script>
+<script src="config.js"></script>
 <script>
 // ================================================================
 // BC Dads WAG - phone app  (version number: see version.js, bump it with every change)
@@ -909,6 +910,41 @@ h2.h{font-size:18px}
     return h;
   }
 
+  // ---------- push notifications (Firebase Cloud Messaging) ----------
+  var FB = self.FIREBASE_CONFIG || {};
+  function pushReady() { return !!(FB.apiKey && self.FIREBASE_VAPID_KEY); }
+  function isIOS() { return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); }
+  function standalone() { return navigator.standalone === true || (window.matchMedia && matchMedia('(display-mode: standalone)').matches); }
+  function pushOnHere() { return lsGet('bcd_pushOn') === '1' && self.Notification && Notification.permission === 'granted'; }
+  function loadScript(src) { return new Promise(function (res, rej) { var x = document.createElement('script'); x.src = src; x.onload = res; x.onerror = function () { rej(new Error('Could not load push.')); }; document.head.appendChild(x); }); }
+  function fbToken() {
+    var V = '10.14.1', p = self.firebase ? Promise.resolve() : loadScript('https://www.gstatic.com/firebasejs/' + V + '/firebase-app-compat.js').then(function () { return loadScript('https://www.gstatic.com/firebasejs/' + V + '/firebase-messaging-compat.js'); });
+    return p.then(function () {
+      if (!firebase.apps.length) firebase.initializeApp(FB);
+      return navigator.serviceWorker.ready;
+    }).then(function (reg) { return firebase.messaging().getToken({ vapidKey: self.FIREBASE_VAPID_KEY, serviceWorkerRegistration: reg }); });
+  }
+  function pushCard() {
+    var h = '<section class="card col" style="gap:12px"><b>Notifications</b>';
+    if (!pushReady()) return h + '<p class="sub">Phone alerts are not switched on for the group yet.</p></section>';
+    if (!('Notification' in self) || !('serviceWorker' in navigator) || (isIOS() && !standalone()))
+      return h + '<p class="sub">' + (isIOS() && !standalone() ? 'On iPhone, open BC Dads from its Home Screen icon to turn on alerts (iOS 16.4 or newer).' : 'This phone cannot receive web alerts.') + '</p></section>';
+    if (Notification.permission === 'denied') return h + '<p class="sub">Alerts are blocked for this app on this phone. To allow them: open your phone <b>Settings</b>, then <b>Notifications</b>, then <b>BC Dads</b>, and turn on <b>Allow Notifications</b>. Then come back here.</p></section>';
+    if (!pushOnHere()) return h + '<p class="sub">Get a lock screen alert when someone fires up your workout, comments, or a bet is posted. After you tap the button your phone asks once. Tap <b>Allow</b>.</p><button class="btn" data-a="pushOn">Allow notifications</button></section>';
+    var P = S.me.push || { off: [], cats: {} };
+    h += '<div class="pos">On for this phone</div><p class="sub">What you get. Tap to switch a kind of alert off or on.</p><div class="acts">' +
+      Object.keys(P.cats || {}).map(function (c) { var on = (P.off || []).indexOf(c) === -1; return '<button class="pill' + (on ? ' lime' : '') + '" data-a="pushCat" data-id="' + esc(c) + '" aria-pressed="' + on + '">' + esc(P.cats[c]) + '</button>'; }).join('') + '</div>' +
+      '<div class="acts"><button class="pill" data-a="pushTest">Send me a test</button><button class="pill" data-a="pushOff">Turn off on this phone</button></div></section>';
+    return h;
+  }
+  // Keeps this phone's token current (they can change) and saved on the server.
+  function pushRefresh() {
+    if (!pushReady() || !pushOnHere() || !S) return;
+    fbToken().then(function (t) {
+      if (t && (t !== lsGet('bcd_pushTok') || !(S.me.push && S.me.push.phones))) { lsSet('bcd_pushTok', t); api('pushToken', { token: t }, true); }
+    }).catch(function () {});
+  }
+
   function viewMe() {
     var w = { connected: ['Connected', 'pos'], reconnect: ['Disconnected   reconnect', 'neg'], none: ['Not connected', ''] }[S.me.whoop];
     var h = '<section class="card col" style="gap:12px"><div class="row">' + avatar(S.me.pid) + '<div class="col grow" style="gap:1px"><b style="font-size:18px">' + esc(S.me.name) + '</b><span class="sub">' + esc(S.week.label) + '</span></div></div>' +
@@ -916,6 +952,7 @@ h2.h{font-size:18px}
     h += '<section class="card col" style="gap:12px"><div class="row between"><b>WHOOP</b><b class="' + w[1] + '">' + w[0] + '</b></div>' +
       '<p class="sub">' + (S.me.whoop === 'connected' ? 'Your WHOOP workouts post on their own, about once an hour.' : 'Connect WHOOP and your workouts post on their own. No WHOOP? Just use Log workout, or keep texting.') + '</p>' +
       (S.me.whoop === 'connected' ? '' : '<button class="btn" data-a="connect">' + (S.me.whoop === 'reconnect' ? 'Reconnect WHOOP' : 'Connect WHOOP') + '</button>') + '</section>';
+    h += pushCard();
     if (S.me.admin) h += '<section class="card col" style="gap:10px"><div class="row between"><b>Admin</b><span class="sub" style="font-size:12px">Only you see this</span></div><button class="btn ghost" data-a="admin">Open admin</button></section>';
     h += '<section class="card col" style="gap:8px"><b>Put this app on your home screen</b><p class="sub"><b>iPhone:</b> open your personal link in Safari, tap Share, then "Add to Home Screen".<br><b>Android:</b> open it in Chrome, tap the menu, then "Add to Home screen".</p></section>';
     if ((S.updates || []).length) h += '<p style="text-align:center"><button class="link" data-a="newsAll">What\'s new</button></p>';
@@ -1368,6 +1405,29 @@ h2.h{font-size:18px}
       if (!confirm('Delete this post for everyone? This cannot be undone.')) return;
       api('adminDelete', { id: id }).then(done);
     },
+    pushOn: function (id, el) {
+      el.disabled = true;
+      Notification.requestPermission().then(function (perm) {
+        if (perm !== 'granted') throw new Error('Notifications were not allowed.');
+        return fbToken();
+      }).then(function (t) {
+        lsSet('bcd_pushTok', t); lsSet('bcd_pushOn', '1');
+        return api('pushToken', { token: t }, true);
+      }).then(function (j) { if (j) { S.me.push = S.me.push || { off: [], cats: {} }; S.me.push.phones = Math.max(1, S.me.push.phones || 0); toast('Notifications are on for this phone.'); } else lsSet('bcd_pushOn', ''); })
+        .catch(function (e) { toast(e.message || 'Could not turn on notifications.', true); })
+        .then(function () { el.disabled = false; if (!typing()) render(); });
+    },
+    pushOff: function () {
+      var t = lsGet('bcd_pushTok'); lsSet('bcd_pushOn', '');
+      try { if (self.firebase && firebase.apps.length) firebase.messaging().deleteToken(); } catch (e) {}
+      render(); if (t) api('pushToken', { token: t, remove: '1' }, true).then(function (j) { if (j) toast('Notifications are off for this phone.'); });
+    },
+    pushCat: function (id) {
+      var P = S.me.push; if (!P) return;
+      var off = (P.off || []).slice(), i = off.indexOf(id); if (i === -1) off.push(id); else off.splice(i, 1);
+      P.off = off; render(); api('pushPrefs', { off: off.join(',') }, true);
+    },
+    pushTest: function () { api('pushTest', {}, true).then(function (j) { if (j && j.message) toast(j.message); }); },
     feedback: function () { ui.fb = ''; pushSheet({ t: 'feedback' }); },
     feedbackSend: function () {
       var t = val('fbText'); if (!t) { toast('Write something first.', true); return; }
@@ -1477,7 +1537,7 @@ h2.h{font-size:18px}
     if (!KEY) { renderKeyScreen(''); return; }
     var cached = lsGet('bcd_state');
     if (cached && !S) { try { S = JSON.parse(cached); if (!S.badges || !S.stats || !S.bets || !S.bank.openBets || (S.bets[0] && !S.bets[0].pairs)) S = null; else render(); } catch (e) { S = null; } }
-    refresh(false).then(showNews);
+    refresh(false).then(function () { showNews(); pushRefresh(); });
   }
   // ---------- getting new versions onto the phone quickly ----------
   // A home-screen app can sit in the background for days without reloading. So: check for a new version whenever the app

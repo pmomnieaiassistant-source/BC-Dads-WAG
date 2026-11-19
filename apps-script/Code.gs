@@ -1,6 +1,7 @@
 // ================================================================
 // BC Dads WAG - v7 backend
-// Version: Nov 19, 2026 - v8.1
+// Version: Nov 19, 2026 - v8.2
+//   - v8.2: notifications back on, sent one by one right away (no bundling); alerts for every reaction and for @tags
 //   - v8.1: admin Usage report (who uses the app, who never has, who went back to texting) and Feedback inbox
 //   - v8.0: last active also counts what people did in the app (comments, reactions, posts, logged workouts)
 //   - v7.9: general posts (text, @tags, photo) alongside workouts; owner can delete their post
@@ -21,7 +22,7 @@
 // This ONE file replaces Code.gs, webapp.gs, appsheet_v6_bridge.gs and Index.html.
 // ================================================================
 
-var V7_VERSION = '8.1';
+var V7_VERSION = '8.2';
 var SB_GRACE_MIN = 90;            // side bets: how long after a period ends before a "didn't happen" is paid out (lets late WHOOP data arrive)
 var APP_SYNC_COOLDOWN_MIN = 5;   // the in-app Sync button pulls WHOOP at most this often, for the whole group
 
@@ -78,7 +79,6 @@ var DEFAULTS = {
   sync_days: '10',
   season_weeks: '20',
   feed_show_all_whoop: 'FALSE',
-  push_bundle_min: '3',
   admins: 'Paul'
 };
 
@@ -998,6 +998,7 @@ function runSync_(mode, fullWhoop) {
     throw err;
   } finally {
     try { lock.releaseLock(); } catch (e) {}
+    pushSendQueued_();
   }
 }
 
@@ -1176,6 +1177,7 @@ function handleApi_(req) {
     return res;
   } finally {
     try { lock.releaseLock(); } catch (e) {}
+    pushSendQueued_();   // phone alerts for this save, sent after the lock so nobody else waits on them
   }
 }
 
@@ -1451,6 +1453,7 @@ function apiPost_(me, req, ctx) {
   var exists = readTable_(TAB.EVENTS).some(function(e) { return e.event_id === id; });
   if (exists) return '';
   appendRows_(TAB.EVENTS, [{ event_id: id, created_at: nowIso_(), type: 'post', participant_id: me.pid, week: '', title: '', body: text }]);
+  try { pushToPeople_(pushMentioned_(ctx, text), 'social', 'You were tagged', me.name + ' tagged you: ' + truncate_(text, 100), me.pid); } catch (pe) { Logger.log('push post: ' + pe.message); }
   return '';
 }
 function apiDeletePost_(me, req, ctx) {
@@ -1480,11 +1483,13 @@ function apiReact_(me, req, ctx) {
     }
   }
   appendRows_(TAB.REACTIONS, [{ target_id: target, participant_id: me.pid, created_at: nowIso_(), kind: kind }]);
-  if (kind !== 'fire') return '';
   try {
     var own = pushOwnerOf_(ctx, target);
-    if (own && own.pid && own.pid !== me.pid) pushQueue_(own.pid, 'social', 'Fired up', me.name + ' fired up your ' + (own.what === 'wall' ? 'wall' : own.what === 'workout' ? 'workout' : 'post') + '.');
-  } catch (pe) { Logger.log('push fire: ' + pe.message); }
+    var what = own ? (own.what === 'wall' ? 'wall' : own.what === 'workout' ? 'workout' : 'post') : '';
+    var said = { fire: ['Fired up', ' fired up your ' + what + '.'], beast: ['Beast', ' gave your ' + what + ' a Beast.'], lol: ['LOL', ' laughed at your ' + what + '.'],
+                 clown: ['Clown', ' clowned your ' + what + '.'], dead: ['Dead', ' is dead at your ' + what + '.'] }[kind];
+    if (own && own.pid && own.pid !== me.pid) pushQueue_(own.pid, 'social', said[0], me.name + said[1]);
+  } catch (pe) { Logger.log('push react: ' + pe.message); }
   return '';
 }
 
@@ -1506,6 +1511,7 @@ function apiComment_(me, req, ctx) {
   try {
     var own = pushOwnerOf_(ctx, target);
     if (own && own.pid && own.pid !== me.pid) pushQueue_(own.pid, 'social', 'New comment', me.name + (own.what === 'wall' ? ' wrote on your wall: ' : ' commented: ') + truncate_(text, 100));
+    pushToPeople_(pushMentioned_(ctx, text).filter(function(p) { return !own || p !== own.pid; }), 'social', 'You were tagged', me.name + ': ' + truncate_(text, 100), me.pid);
   } catch (pe) { Logger.log('push comment: ' + pe.message); }
   return '';
 }

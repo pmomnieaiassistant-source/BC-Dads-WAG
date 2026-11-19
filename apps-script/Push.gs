@@ -10,33 +10,35 @@
 // Each phone that turns push on saves its token in the Settings tab, row "<participant id>|pushTokens".
 // Each person's switched-off categories are saved in the row "<participant id>|pushOff".
 //
-// Bundling: alerts are held for a few minutes (Settings > push_bundle_min, default 3) and go out as one notification,
-// e.g. "3 updates in BC Dads WAG". Urgent alerts (the test button) go out right away.
+// No bundling: every alert goes out on its own, right away. Alerts raised while handling one request (or one sync)
+// are collected and sent together at the end of it, in parallel, so the app is not slowed down one by one.
+// Push is on unless Settings > push_enabled is FALSE.
 // ================================================================
 
-var PUSH_BUNDLE_MIN = 3;
 var PUSH_CATS = {
-  social:  'Fires and comments',
+  social:  'Fires, reactions, comments and tags',
   bets:    'Side bets',
   updates: 'Group updates and reminders'
 };
 
-// ---------- queueing ----------
+var _pushOut = [];   // alerts waiting to be sent at the end of this request
 
-// Queue one alert for one person. Does nothing if they have no phone with push on, or switched that category off.
+// ---------- queueing (within one request) ----------
+
+// Line up one alert for one person. Skipped if push is off, they have no phone with push on, or they switched that kind off.
 function pushQueue_(pid, cat, title, body) {
   try {
     if (!pushEnabled_()) return false;
     pid = str_(pid);
     if (!pid || !pushTokens_(pid).length || pushOff_(pid).indexOf(cat) !== -1) return false;
-    var at = Date.now();
-    PropertiesService.getScriptProperties().setProperty('PUSHQ_' + at + '_' + shortId_(),
-      JSON.stringify({ pid: pid, title: truncate_(str_(title), 80), body: truncate_(str_(body), 200), at: at }));
+    var key = pid + '|' + title + '|' + body;
+    if (_pushOut.some(function(x) { return x.key === key; })) return false;   // same alert twice in one go
+    _pushOut.push({ key: key, pid: pid, title: truncate_(str_(title), 80), body: truncate_(str_(body), 200) });
     return true;
   } catch (e) { Logger.log('pushQueue_: ' + e.message); return false; }
 }
 
-// Queue the same alert for several people (never for exceptPid, usually the person who did the thing).
+// The same alert for several people (never for exceptPid, usually the person who did the thing).
 function pushToPeople_(pids, cat, title, body, exceptPid) {
   var seen = {};
   (pids || []).forEach(function(p) {
@@ -48,71 +50,63 @@ function pushToPeople_(pids, cat, title, body, exceptPid) {
 
 function pushEveryone_(ctx) { return ctx.people.filter(function(p) { return p.active; }).map(function(p) { return p.pid; }); }
 
-// Runs every minute (see setupPush). Sends each person's alerts once their bundling window has closed.
-function pushFlush() {
-  var lock = LockService.getScriptLock();
-  if (!lock.tryLock(20000)) return;
-  var due = {};
-  try {
-    var props = PropertiesService.getScriptProperties(), all = props.getProperties(), groups = {};
-    Object.keys(all).filter(function(k) { return k.indexOf('PUSHQ_') === 0; }).forEach(function(k) {
-      var it; try { it = JSON.parse(all[k]); } catch (e) { props.deleteProperty(k); return; }
-      if (!it || !it.pid) { props.deleteProperty(k); return; }
-      (groups[it.pid] = groups[it.pid] || []).push({ k: k, it: it });
-    });
-    Object.keys(groups).forEach(function(pid) {
-      var g = groups[pid].sort(function(a, b) { return a.it.at - b.it.at; });
-      if (Date.now() - g[0].it.at < pushWindowMin_(pid) * 60000) return;
-      g.forEach(function(x) { props.deleteProperty(x.k); });
-      due[pid] = g.map(function(x) { return x.it; });
-    });
-  } finally { lock.releaseLock(); }
-  Object.keys(due).forEach(function(pid) {
-    try {
-      var it = due[pid];
-      if (it.length === 1) { pushSendAll_(pid, it[0].title, it[0].body, false); return; }
-      var lines = it.slice(0, 6).map(function(x) { return '• ' + (x.body || x.title); });
-      if (it.length > 6) lines.push('and ' + (it.length - 6) + ' more');
-      pushSendAll_(pid, it.length + ' updates in BC Dads WAG', lines.join('\n'), false);
-    } catch (e) { Logger.log('pushFlush ' + pid + ': ' + e.message); }
-  });
+// People named with @Name in a piece of text.
+function pushMentioned_(ctx, text) {
+  var t = ' ' + str_(text).toLowerCase() + ' ';
+  return ctx.people.filter(function(p) {
+    var n = '@' + str_(p.name).toLowerCase(), i = t.indexOf(n);
+    while (i !== -1) { if (!/[a-z0-9_]/.test(t.charAt(i + n.length))) return true; i = t.indexOf(n, i + 1); }
+    return false;
+  }).map(function(p) { return p.pid; });
 }
 
-// Run once from the editor: approves access and turns on the every-minute sending job.
+// Sends everything lined up during this request, each alert on its own, all at once. Never throws.
+function pushSendQueued_() {
+  var out = _pushOut; _pushOut = [];
+  if (!out.length) return 0;
+  try {
+    var reqs = [], meta = [], base = pushBase_();
+    out.forEach(function(a) {
+      pushTokens_(a.pid).forEach(function(tok) { reqs.push(pushRequest_(base, tok, a.title, a.body, false)); meta.push({ pid: a.pid, tok: tok }); });
+    });
+    var res = UrlFetchApp.fetchAll(reqs), sent = 0;
+    res.forEach(function(r, i) { if (pushResult_(r, meta[i].pid, meta[i].tok)) sent++; });
+    return sent;
+  } catch (e) { Logger.log('pushSendQueued_: ' + e.message); return 0; }
+}
+
+// Run once from the editor: approves access and switches push on. (Older versions also set up a sending job; it is removed.)
 function setupPush() {
   ScriptApp.getProjectTriggers().filter(function(t) { return t.getHandlerFunction() === 'pushFlush'; }).forEach(function(t) { ScriptApp.deleteTrigger(t); });
-  ScriptApp.newTrigger('pushFlush').timeBased().everyMinutes(1).create();
   pushAccess_();
   setSetting_('push_enabled', 'TRUE');
   var n = readPeople_().map(function(p) { return p.name + ' ' + pushTokens_(p.pid).length; }).join(', ');
-  Logger.log('Push is set up. Phones with push on: ' + n);
+  Logger.log('Push is on. Phones with push turned on: ' + n);
+}
+// Left over from the bundled version: if its every-minute job still exists, it removes itself.
+function pushFlush() {
+  ScriptApp.getProjectTriggers().filter(function(t) { return t.getHandlerFunction() === 'pushFlush'; }).forEach(function(t) { ScriptApp.deleteTrigger(t); });
 }
 
-// Push is off unless Settings > push_enabled is TRUE (setupPush turns it on). Taken out of the app for now.
-function pushEnabled_() { return isTrue_(pushSet_().push_enabled); }
+// ---------- settings (tokens and switches) ----------
 
-// While push is off, clears any alerts left waiting so they never build up in the script's storage. Runs with the hourly sync.
+// On unless Settings > push_enabled says FALSE.
+function pushEnabled_() { return str_(pushSet_().push_enabled).toUpperCase() !== 'FALSE'; }
+
+// Clears anything the old bundled version left waiting in script storage. Runs with the hourly sync.
 function pushPurge_() {
-  if (pushEnabled_()) return 0;
   var props = PropertiesService.getScriptProperties(), n = 0;
   Object.keys(props.getProperties()).forEach(function(k) { if (k.indexOf('PUSHQ_') === 0) { props.deleteProperty(k); n++; } });
   return n;
 }
 
-// ---------- settings (tokens and switches) ----------
-
 var _pushSet = null;
 function pushSet_() { if (!_pushSet) _pushSet = readSettings_(); return _pushSet; }
 function pushTokens_(pid) { return str_(pushSet_()[pid + '|pushTokens']).split(',').map(str_).filter(function(t) { return t; }); }
-// How long this person's alerts are held before sending (their own choice in the app, else the group default).
-function pushWindowMin_(pid) {
-  var mine = str_(pushSet_()[pid + '|bundleMin']);
-  return mine !== '' ? num_(mine, PUSH_BUNDLE_MIN) : num_(pushSet_().push_bundle_min, PUSH_BUNDLE_MIN);
-}
 function pushOff_(pid) { return str_(pushSet_()[pid + '|pushOff']).split(',').map(str_).filter(function(t) { return t; }); }
 function pushSave_(key, value) { setSetting_(key, value); if (_pushSet) _pushSet[key] = String(value); }
 
-function pushInfo_(me) { return { off: pushOff_(me.pid), phones: pushTokens_(me.pid).length, cats: PUSH_CATS, bundle: String(pushWindowMin_(me.pid)) }; }
+function pushInfo_(me) { return { off: pushOff_(me.pid), phones: pushTokens_(me.pid).length, cats: PUSH_CATS, on: pushEnabled_() }; }
 
 function pushDropToken_(pid, tok) {
   pushSave_(pid + '|pushTokens', pushTokens_(pid).filter(function(t) { return t !== tok; }).join(','));
@@ -128,27 +122,32 @@ function apiPushToken_(me, req) {
   var cur = pushTokens_(me.pid).filter(function(t) { return t !== tok; });
   if (!isTrue_(req.remove)) cur.push(tok);
   pushSave_(me.pid + '|pushTokens', cur.slice(-6).join(','));
-  return isTrue_(req.remove) ? 'Push is off for this phone.' : 'Push is on for this phone.';
+  return isTrue_(req.remove) ? 'Notifications are off for this phone.' : 'Notifications are on for this phone.';
 }
 
 function apiPushPrefs_(me, req) {
   var off = str_(req.off).split(',').map(str_).filter(function(c) { return PUSH_CATS[c]; });
   if (req.off !== undefined) pushSave_(me.pid + '|pushOff', off.join(','));
-  if (req.bundle !== undefined && { '0': 1, '3': 1, '15': 1, '60': 1 }[str_(req.bundle)]) pushSave_(me.pid + '|bundleMin', str_(req.bundle));
   return '';
 }
 
+// The "Send me a test" button: sends straight away and says exactly what went wrong if it did not work.
 function apiPushTest_(me) {
-  var n = pushSendAll_(me.pid, 'BC Dads WAG', 'Push notifications are working ✅', true);
-  if (!n) throw new Error('No phone is set up for push yet.');
-  return 'Test sent. It should arrive in a few seconds.';
+  var tokens = pushTokens_(me.pid);
+  if (!tokens.length) throw new Error('This phone is not registered for notifications yet. Tap Turn off, then Allow notifications again.');
+  var base = pushBase_(), errs = [], sent = 0;
+  UrlFetchApp.fetchAll(tokens.map(function(t) { return pushRequest_(base, t, 'BC Dads WAG', 'Notifications are working ✅', true); })).forEach(function(r, i) {
+    if (pushResult_(r, me.pid, tokens[i])) sent++; else errs.push(r.getResponseCode() + ' ' + truncate_(r.getContentText(), 160));
+  });
+  if (!sent) throw new Error('Firebase did not deliver it: ' + errs.join(' | '));
+  return 'Test sent to ' + sent + (sent === 1 ? ' phone' : ' phones') + '. It should arrive in a few seconds.';
 }
 
-// Run from the editor to test: sends to the first person who has push on.
+// Run from the editor to test: sends to the first person who has push on and logs Firebase's answer.
 function pushTest() {
   var hit = readPeople_().filter(function(p) { return pushTokens_(p.pid).length; })[0];
-  if (!hit) { Logger.log('Nobody has turned push on in the app yet (Me tab > Notifications).'); return; }
-  Logger.log('Sent to ' + pushSendAll_(hit.pid, 'BC Dads WAG', 'Push notifications are working ✅', true) + ' phone(s) for ' + hit.name + '.');
+  if (!hit) { Logger.log('Nobody has turned notifications on in the app yet (Me tab > Notifications).'); return; }
+  try { Logger.log(apiPushTest_(hit)); } catch (e) { Logger.log(e.message); }
 }
 
 // ---------- Firebase ----------
@@ -172,25 +171,35 @@ function pushAccess_() {
   return j.access_token;
 }
 
-// Sends one notification to every phone the person turned push on for. Returns how many phones got it.
+function pushBase_() {
+  var at = pushAccess_();
+  var project = CacheService.getScriptCache().get('fcm_project') || JSON.parse(PropertiesService.getScriptProperties().getProperty('FIREBASE_SERVICE_ACCOUNT')).project_id;
+  return { at: at, url: 'https://fcm.googleapis.com/v1/projects/' + project + '/messages:send', app: str_(pushSet_().app_url) };
+}
+
+function pushRequest_(base, tok, title, body, urgent) {
+  var msg = { token: tok, webpush: { headers: { Urgency: urgent ? 'high' : 'normal', TTL: '86400' }, notification: { title: String(title || 'BC Dads WAG'), body: String(body || '') } } };
+  if (/^https:\/\//.test(base.app)) {
+    msg.webpush.fcm_options = { link: base.app };
+    msg.webpush.notification.icon = base.app.replace(/\/?$/, '/') + 'icon-180.png';
+  }
+  return { url: base.url, method: 'post', contentType: 'application/json', headers: { Authorization: 'Bearer ' + base.at }, muteHttpExceptions: true, payload: JSON.stringify({ message: msg }) };
+}
+
+// true if delivered; drops tokens Firebase says are gone (phone uninstalled the app or turned it off).
+function pushResult_(r, pid, tok) {
+  var code = r.getResponseCode();
+  if (code === 200) return true;
+  if (code === 404 || /UNREGISTERED|registration-token-not-registered/.test(r.getContentText())) pushDropToken_(pid, tok);
+  else Logger.log('Push to ' + pid + ' failed (' + code + '): ' + r.getContentText());
+  return false;
+}
+
+// Sends one notification right away to every phone the person turned push on for. Returns how many phones got it.
 function pushSendAll_(pid, title, body, urgent) {
   var tokens = pushTokens_(pid);
   if (!tokens.length) return 0;
-  var at = pushAccess_(), cache = CacheService.getScriptCache();
-  var project = cache.get('fcm_project') || JSON.parse(PropertiesService.getScriptProperties().getProperty('FIREBASE_SERVICE_ACCOUNT')).project_id;
-  var app = str_(readSettings_().app_url);
-  var sent = 0;
-  tokens.forEach(function(tok) {
-    var msg = { token: tok, webpush: { headers: { Urgency: urgent ? 'high' : 'normal', TTL: '86400' }, notification: { title: String(title || 'BC Dads WAG'), body: String(body || '') } } };
-    if (/^https:\/\//.test(app)) {
-      msg.webpush.fcm_options = { link: app };
-      msg.webpush.notification.icon = app.replace(/\/?$/, '/') + 'icon-180.png';
-    }
-    var r = UrlFetchApp.fetch('https://fcm.googleapis.com/v1/projects/' + project + '/messages:send', { method: 'post', contentType: 'application/json', headers: { Authorization: 'Bearer ' + at }, muteHttpExceptions: true, payload: JSON.stringify({ message: msg }) });
-    var code = r.getResponseCode();
-    if (code === 200) sent++;
-    else if (code === 404 || /UNREGISTERED|registration-token-not-registered/.test(r.getContentText())) pushDropToken_(pid, tok);
-    else Logger.log('Push to ' + pid + ' failed (' + code + '): ' + r.getContentText());
-  });
+  var base = pushBase_(), sent = 0;
+  UrlFetchApp.fetchAll(tokens.map(function(t) { return pushRequest_(base, t, title, body, urgent); })).forEach(function(r, i) { if (pushResult_(r, pid, tokens[i])) sent++; });
   return sent;
 }

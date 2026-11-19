@@ -1,6 +1,5 @@
 # Phone push notifications: setup
 
-> **Currently switched off (app v7.6).** The Notifications card was taken out of the app and the server does not queue alerts (Settings `push_enabled` is not TRUE). The sending code (`apps-script/Push.gs`) and `config.js` are kept so it can come back: restore the app's Notifications card from git history (commit c286ccc) and run `setupPush`, which sets `push_enabled` to TRUE.
 
 The code is already in the repo. Push stays off until these steps are done, and nothing else in the app changes.
 
@@ -18,7 +17,7 @@ You can **reuse the Firebase project you made for the Momnie app** (the keys bel
 1. **Project settings, Service accounts, Generate new private key** (the same JSON file you used for Momnie works).
 2. Apps Script editor for the BC Dads project, **Project Settings, Script properties**, add `FIREBASE_SERVICE_ACCOUNT` and paste the whole JSON file as the value.
 3. In the Sheet's **Settings** tab, make sure `app_url` is the GitHub Pages address of the app, ending in `/`.
-4. In the Apps Script editor, pick **`setupPush`** in the function menu and press **Run** (once). It asks for permission, then starts the every-minute sending job.
+4. In the Apps Script editor, pick **`setupPush`** in the function menu and press **Run** (once). It asks for permission and checks the Firebase key. (Push is on unless the Settings tab has `push_enabled` set to FALSE.)
    (After a merge to `main` the deploy workflow uploads `Push.gs` for you.)
 
 ## 3. Turn it on, per phone
@@ -27,19 +26,20 @@ You can **reuse the Firebase project you made for the Momnie app** (the keys bel
 2. **Me** tab, **Notifications**, **Turn on notifications**, tap Allow.
 3. Press **Send me a test**. It should arrive in a few seconds.
 
-Each person controls their own alerts in the same card: which kinds they get (fires and comments, side bets, group updates and reminders) and how they arrive (as they happen, bundled 3 minutes, every 15 minutes, or hourly). If a phone blocked alerts earlier, the card explains where to allow them in the phone's Settings.
+Each person chooses which kinds of alerts they get in the same card (fires, reactions, comments and tags; side bets; group updates and reminders). If a phone blocked alerts earlier, the card explains where to allow them in the phone's Settings.
 
 ## What gets sent
 
 | Alert | Who gets it | Switch |
 | --- | --- | --- |
-| Someone fires up your workout or post | the post's owner | Fires and comments |
-| Someone comments on your post or wall | the post's owner | Fires and comments |
+| Someone fires or reacts to your workout or post | the post's owner | Fires, reactions, comments and tags |
+| Someone comments on your post or wall | the post's owner | Fires, reactions, comments and tags |
+| Someone tags you (@Name) in a comment or post | whoever is tagged | Fires, reactions, comments and tags |
 | A side bet is posted | everyone it is not hidden from | Side bets |
 | A side bet settles or is called off | everyone who had money on it | Side bets |
 | Dormie, buying the bet, weekly recap, last-day nudge | the group (nudge: only those who still need a workout) | Group updates and reminders |
 
-Alerts for one person are held a few minutes and sent together ("3 updates in BC Dads WAG"). Change the wait with `push_bundle_min` in the Settings tab (default 3).
+No bundling: every alert is sent on its own, right away.
 
 ## Feedback
 
@@ -49,7 +49,7 @@ The **Talk shit and make this app better** link at the bottom of the Me tab save
 
 - Test says "No phone is set up for push yet": turn it on in the app first (step 3).
 - Test says "Push is not set up on the server yet": the `FIREBASE_SERVICE_ACCOUNT` script property is missing (step 2).
-- No notification but no error: run `pushTest` from the Apps Script editor and read the log. Check the Firebase Cloud Messaging API is enabled for the project.
+- No notification: the test button now shows Firebase's exact answer if it refused. You can also run `pushTest` from the Apps Script editor and read the log. Check the Firebase Cloud Messaging API is enabled for the project.
 
 ## Hide and delete on the feed
 

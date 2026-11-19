@@ -1,7 +1,14 @@
 // BC Dads WAG service worker: opens the app instantly from the phone's copy, and moves phones onto new versions quickly.
-importScripts('version.js');
+importScripts('version.js', 'config.js');
 const VERSION = 'bcd-v' + self.APP_VERSION;
-const SHELL = ['./', 'index.html', 'version.js', 'manifest.webmanifest', 'icon-180.png', 'icon-512.png'];
+const SHELL = ['./', 'index.html', 'version.js', 'config.js', 'manifest.webmanifest', 'icon-180.png', 'icon-512.png'];
+
+// Push notifications: Firebase shows a notification sent with a "notification" payload, even when the app is closed.
+if (self.FIREBASE_CONFIG && self.FIREBASE_CONFIG.apiKey) {
+  importScripts('https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js', 'https://www.gstatic.com/firebasejs/10.14.1/firebase-messaging-compat.js');
+  firebase.initializeApp(self.FIREBASE_CONFIG);
+  firebase.messaging();
+}
 
 // cache: 'reload' skips the browser's own HTTP cache (GitHub Pages keeps files ~10 minutes), so a new version never saves an old page.
 // skipWaiting + clients.claim: the new version takes over at once instead of waiting for every copy of the app to be closed.
@@ -39,4 +46,11 @@ self.addEventListener('fetch', e => {
     if (hit) { e.waitUntil(fresh); return hit; }
     return fresh;
   }));
+});
+
+// Tapping a notification opens the app (or brings it to the front).
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const link = (e.notification.data && (e.notification.data.link || (e.notification.data.FCM_MSG && e.notification.data.FCM_MSG.fcmOptions && e.notification.data.FCM_MSG.fcmOptions.link))) || './';
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(cs => { const w = cs[0]; return w ? w.focus() : self.clients.openWindow(link); }));
 });
