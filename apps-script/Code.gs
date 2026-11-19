@@ -1,7 +1,8 @@
 // ================================================================
 // BC Dads WAG - v7 backend
 // Version: Nov 19, 2026 - v7.5
-//   - v7.5: phone push notifications (Push.gs), feedback from the Me tab
+//   - v7.5: phone push notifications (Push.gs), feedback from the Me tab, swipe to hide a post,
+//           admin delete (Settings > admins, default Paul)
 //   - v7.4: side bets match dollar for dollar (any amount, uncovered money refunded), weekly badges
 //   - v7.1: profiles, badges, comment wall, who-reacted, edit posts, duplicate hiding,
 //           initials column, feed safeguard, tidier menu
@@ -36,7 +37,7 @@ var HEAD = {
   Workouts: ['workout_id', 'participant_id', 'workout_date', 'workout_start', 'workout_end',
              'duration_minutes', 'strain', 'source', 'activity', 'effort', 'note', 'created_at', 'status', 'edited_at'],
   Cycles: ['cycle_key', 'participant_id', 'cycle_date', 'strain', 'updated_at'],
-  Feed_Events: ['event_id', 'created_at', 'type', 'participant_id', 'week', 'title', 'body'],
+  Feed_Events: ['event_id', 'created_at', 'type', 'participant_id', 'week', 'title', 'body', 'deleted'],
   Comments: ['comment_id', 'target_id', 'participant_id', 'text', 'created_at'],
   Reactions: ['target_id', 'participant_id', 'created_at'],
   Bet_Pots: ['week', 'end_amount', 'members', 'settled_by', 'settled_at'],
@@ -69,7 +70,8 @@ var DEFAULTS = {
   sync_days: '10',
   season_weeks: '20',
   feed_show_all_whoop: 'FALSE',
-  push_bundle_min: '3'
+  push_bundle_min: '3',
+  admins: 'Paul'
 };
 
 
@@ -1108,7 +1110,7 @@ function handleApi_(req) {
   var ctx;
 
   // Small actions that never touch the tracker data: no recalculation, quick answer.
-  var LIGHT = { pushToken: apiPushToken_, pushPrefs: apiPushPrefs_, pushTest: apiPushTest_, feedback: apiFeedback_ };
+  var LIGHT = { pushToken: apiPushToken_, pushPrefs: apiPushPrefs_, pushTest: apiPushTest_, feedback: apiFeedback_, hidePost: apiHidePost_, unhidePosts: apiHidePost_ };
   if (LIGHT[action]) {
     var lk = LockService.getScriptLock();
     if (!lk.tryLock(25000)) return { ok: false, error: 'The tracker is busy for a moment. Try again.' };
@@ -1128,11 +1130,11 @@ function handleApi_(req) {
     logWorkout: apiLogWorkout_, editWorkout: apiEditWorkout_, deleteWorkout: apiDeleteWorkout_,
     react: apiReact_, comment: apiComment_, deleteComment: apiDeleteComment_,
     settle: apiSettle_, payment: apiPayment_, join: apiJoin_, leave: apiLeave_, weight: apiWeight_,
-    betPropose: apiBetPropose_, betPlace: apiBetPlace_, betResolve: apiBetResolve_
+    betPropose: apiBetPropose_, betPlace: apiBetPlace_, betResolve: apiBetResolve_, adminDelete: apiAdminDelete_
   };
   if (action === 'syncNow') return apiSyncNow_(me, profilePid);
   if (!handlers[action]) return { ok: false, error: 'Unknown action: ' + action };
-  var BADGE_ACTIONS = { logWorkout: 1, editWorkout: 1, deleteWorkout: 1, settle: 1, payment: 1, weight: 1, betResolve: 1 };
+  var BADGE_ACTIONS = { adminDelete: 1, logWorkout: 1, editWorkout: 1, deleteWorkout: 1, settle: 1, payment: 1, weight: 1, betResolve: 1 };
 
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(25000)) return { ok: false, error: 'The tracker is busy for a moment. Try again.' };
@@ -1223,6 +1225,36 @@ function apiFeedback_(me, req) {
   if (!text) throw new Error('Write something first.');
   appendRows_(TAB.FEEDBACK, [{ feedback_id: 'f_' + shortId_(), created_at: nowIso_(), participant_id: me.pid, name: me.name, text: text }]);
   return 'Sent. Thanks for the feedback.';
+}
+
+// Admins (Settings > admins, names or ids, default Paul) may delete any post for everyone.
+function isAdmin_(me, settings) {
+  var list = str_((settings || readSettings_()).admins).split(',').map(function(x) { return str_(x).toLowerCase(); });
+  return list.indexOf(str_(me.name).toLowerCase()) !== -1 || list.indexOf(str_(me.pid).toLowerCase()) !== -1;
+}
+
+// "Hide" a post from your own feed only (swipe left). Stored per person, newest 400.
+function apiHidePost_(me, req) {
+  var key = me.pid + '|hidden', cur = str_(readSettings_()[key]).split(',').map(str_).filter(function(x) { return x; });
+  if (isTrue_(req.clear)) cur = [];
+  else {
+    var id = truncate_(str_(req.id), 120);
+    if (!id) throw new Error('Missing post.');
+    if (cur.indexOf(id) === -1) cur.push(id);
+  }
+  setSetting_(key, cur.slice(-400).join(','));
+  return '';
+}
+
+// Admin only: remove a post for everyone. Workouts are marked deleted; posts like recaps are flagged so they are not made again.
+function apiAdminDelete_(me, req, ctx) {
+  if (!isAdmin_(me, ctx.settings)) throw new Error('Only the admin can delete other posts.');
+  var id = str_(req.id), hit = null;
+  readTable_(TAB.WORKOUTS).forEach(function(w) { if (w.workout_id === id) hit = w; });
+  if (hit) { hit.status = 'deleted'; updateRow_(TAB.WORKOUTS, hit._row, hit); return 'Post deleted.'; }
+  readTable_(TAB.EVENTS).forEach(function(e) { if (e.event_id === id) hit = e; });
+  if (hit) { hit.deleted = '1'; updateRow_(TAB.EVENTS, hit._row, hit); return 'Post deleted.'; }
+  throw new Error('That post cannot be deleted.');
 }
 
 // Who a post belongs to (for "X fired up your workout" alerts): a workout's owner, a wall's owner, or an event's person.
@@ -1565,6 +1597,7 @@ function feedItems_(me, ctx, onlyPid, limit) {
     });
   });
   readTable_(TAB.EVENTS).forEach(function(e) {
+    if (str_(e.deleted)) return;
     if (onlyPid && e.participant_id !== onlyPid) return;
     items.push({ id: e.event_id, kind: 'e', type: e.type, pid: e.participant_id, ts: e.created_at, title: e.title, body: e.body,
                  toPid: e.type === 'wall' ? str_(e.week) : '', badgeId: e.type.indexOf('badge_') === 0 ? str_(e.week) : '' });
@@ -1852,7 +1885,8 @@ function buildState_(me, ctx) {
     version: V7_VERSION, now: nowIso_(),
     lastSync: str_(PropertiesService.getScriptProperties().getProperty('LAST_SYNC_AT')),
     me: {
-      pid: me.pid, name: me.name, whoop: whoopStatus_(me.pid), push: pushInfo_(me),
+      pid: me.pid, name: me.name, whoop: whoopStatus_(me.pid), push: pushInfo_(me), admin: isAdmin_(me, ctx.settings),
+      hidden: str_(ctx.settings[me.pid + '|hidden']).split(',').map(str_).filter(function(x) { return x; }),
       connectUrl: redirect ? redirect + '?connect=' + encodeURIComponent(me.key) : ''
     },
     rules: { minDays: ctx.minDays, minTime: ctx.minTime, minEffort: ctx.minEffort, baseBet: ctx.baseBet },

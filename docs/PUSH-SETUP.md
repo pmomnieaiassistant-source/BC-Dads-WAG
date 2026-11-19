@@ -25,7 +25,7 @@ You can **reuse the Firebase project you made for the Momnie app** (the keys bel
 2. **Me** tab, **Notifications**, **Turn on notifications**, tap Allow.
 3. Press **Send me a test**. It should arrive in a few seconds.
 
-Each person can switch alert types on or off in the same card: fires and comments, side bets, group updates and reminders.
+Each person controls their own alerts in the same card: which kinds they get (fires and comments, side bets, group updates and reminders) and how they arrive (as they happen, bundled 3 minutes, every 15 minutes, or hourly). If a phone blocked alerts earlier, the card explains where to allow them in the phone's Settings.
 
 ## What gets sent
 
@@ -48,3 +48,8 @@ The **Talk shit and make this app better** link at the bottom of the Me tab save
 - Test says "No phone is set up for push yet": turn it on in the app first (step 3).
 - Test says "Push is not set up on the server yet": the `FIREBASE_SERVICE_ACCOUNT` script property is missing (step 2).
 - No notification but no error: run `pushTest` from the Apps Script editor and read the log. Check the Firebase Cloud Messaging API is enabled for the project.
+
+## Hide and delete on the feed
+
+- Swipe any feed card **left** to reveal **Hide**. It removes the post from your own feed only. "N hidden posts, Show again" appears at the bottom of the feed to bring them back.
+- People listed in the Settings tab row `admins` (default `Paul`; names or participant ids, comma separated) also see **Delete**, which removes a post for everyone.

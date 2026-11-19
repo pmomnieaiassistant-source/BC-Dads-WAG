@@ -59,10 +59,9 @@ function pushFlush() {
       if (!it || !it.pid) { props.deleteProperty(k); return; }
       (groups[it.pid] = groups[it.pid] || []).push({ k: k, it: it });
     });
-    var win = (num_(readSettings_().push_bundle_min, PUSH_BUNDLE_MIN)) * 60000;
     Object.keys(groups).forEach(function(pid) {
       var g = groups[pid].sort(function(a, b) { return a.it.at - b.it.at; });
-      if (Date.now() - g[0].it.at < win) return;
+      if (Date.now() - g[0].it.at < pushWindowMin_(pid) * 60000) return;
       g.forEach(function(x) { props.deleteProperty(x.k); });
       due[pid] = g.map(function(x) { return x.it; });
     });
@@ -92,10 +91,15 @@ function setupPush() {
 var _pushSet = null;
 function pushSet_() { if (!_pushSet) _pushSet = readSettings_(); return _pushSet; }
 function pushTokens_(pid) { return str_(pushSet_()[pid + '|pushTokens']).split(',').map(str_).filter(function(t) { return t; }); }
+// How long this person's alerts are held before sending (their own choice in the app, else the group default).
+function pushWindowMin_(pid) {
+  var mine = str_(pushSet_()[pid + '|bundleMin']);
+  return mine !== '' ? num_(mine, PUSH_BUNDLE_MIN) : num_(pushSet_().push_bundle_min, PUSH_BUNDLE_MIN);
+}
 function pushOff_(pid) { return str_(pushSet_()[pid + '|pushOff']).split(',').map(str_).filter(function(t) { return t; }); }
 function pushSave_(key, value) { setSetting_(key, value); if (_pushSet) _pushSet[key] = String(value); }
 
-function pushInfo_(me) { return { off: pushOff_(me.pid), phones: pushTokens_(me.pid).length, cats: PUSH_CATS }; }
+function pushInfo_(me) { return { off: pushOff_(me.pid), phones: pushTokens_(me.pid).length, cats: PUSH_CATS, bundle: String(pushWindowMin_(me.pid)) }; }
 
 function pushDropToken_(pid, tok) {
   pushSave_(pid + '|pushTokens', pushTokens_(pid).filter(function(t) { return t !== tok; }).join(','));
@@ -116,7 +120,8 @@ function apiPushToken_(me, req) {
 
 function apiPushPrefs_(me, req) {
   var off = str_(req.off).split(',').map(str_).filter(function(c) { return PUSH_CATS[c]; });
-  pushSave_(me.pid + '|pushOff', off.join(','));
+  if (req.off !== undefined) pushSave_(me.pid + '|pushOff', off.join(','));
+  if (req.bundle !== undefined && { '0': 1, '3': 1, '15': 1, '60': 1 }[str_(req.bundle)]) pushSave_(me.pid + '|bundleMin', str_(req.bundle));
   return '';
 }
 
