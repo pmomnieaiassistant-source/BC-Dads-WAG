@@ -12,9 +12,10 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" href="icon-180.png">
+<script src="version.js"></script>
 <script>
 // ================================================================
-// BC Dads WAG - phone app  (v7.1, Nov 11, 2026 10:15 AM ET)
+// BC Dads WAG - phone app  (version number: see version.js, bump it with every change)
 // The only line you may ever need to change is API_URL: it must be the
 // Apps Script web app address ending in /exec (same as Settings > redirect_url).
 // ================================================================
@@ -693,7 +694,7 @@ h2.h{font-size:18px}
       '<p class="sub">' + (S.me.whoop === 'connected' ? 'Your WHOOP workouts post on their own, about once an hour.' : 'Connect WHOOP and your workouts post on their own. No WHOOP? Just use Log workout, or keep texting.') + '</p>' +
       (S.me.whoop === 'connected' ? '' : '<button class="btn" data-a="connect">' + (S.me.whoop === 'reconnect' ? 'Reconnect WHOOP' : 'Connect WHOOP') + '</button>') + '</section>';
     h += '<section class="card col" style="gap:8px"><b>Put this app on your home screen</b><p class="sub"><b>iPhone:</b> open your personal link in Safari, tap Share, then "Add to Home Screen".<br><b>Android:</b> open it in Chrome, tap the menu, then "Add to Home screen".</p></section>';
-    h += '<p class="sub" style="text-align:center">BC Dads WAG v' + esc(S.version) + '</p>';
+    h += '<p class="sub" style="text-align:center">BC Dads WAG app v' + esc(self.APP_VERSION || '?') + (self.APP_DATE ? ' \u00b7 ' + esc(self.APP_DATE) : '') + (S.version ? '<br>Tracker script v' + esc(S.version) : '') + '</p>';
     return h;
   }
 
@@ -1044,6 +1045,29 @@ h2.h{font-size:18px}
     if (cached && !S) { try { S = JSON.parse(cached); if (!S.badges || !S.stats || !S.bets || !S.bank.openBets || (S.bets[0] && !S.bets[0].pairs)) S = null; else render(); } catch (e) { S = null; } }
     refresh(false);
   }
+  // ---------- getting new versions onto the phone quickly ----------
+  // A home-screen app can sit in the background for days without reloading. So: check for a new version whenever the app
+  // comes back to the front (and every 30 minutes while open). When a new version has installed, reload once, waiting
+  // until no page is open, nothing is being typed and nothing is still saving, so nothing you're doing gets lost.
+  (function () {
+    if (!('serviceWorker' in navigator)) return;
+    var hadSW = !!navigator.serviceWorker.controller, reg = null, wait = 0, last = 0;
+    function check() { if (!reg || Date.now() - last < 60000) return; last = Date.now(); reg.update().catch(function () {}); }
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (!hadSW || wait) return;                 // first install: nothing to refresh
+      function go() {
+        if (ui.stack.length || ui.busy || spinCount || typing()) return;
+        clearInterval(wait); toast('Updating to the new version\u2026'); setTimeout(function () { location.reload(); }, 600);
+      }
+      wait = setInterval(go, 1500); go();
+    });
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) check(); });
+    setInterval(function () { if (!document.hidden) check(); }, 30 * 60000);
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(function (r) { reg = r; }).catch(function () {});
+    });
+  })();
+
   document.addEventListener('visibilitychange', function () { if (!document.hidden && KEY && S) refresh(true); });
   setInterval(function () { if (!document.hidden && KEY && S && !ui.busy) refresh(true); }, 90000);
   start();
