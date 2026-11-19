@@ -26,6 +26,7 @@ var PUSH_CATS = {
 // Queue one alert for one person. Does nothing if they have no phone with push on, or switched that category off.
 function pushQueue_(pid, cat, title, body) {
   try {
+    if (!pushEnabled_()) return false;
     pid = str_(pid);
     if (!pid || !pushTokens_(pid).length || pushOff_(pid).indexOf(cat) !== -1) return false;
     var at = Date.now();
@@ -82,8 +83,20 @@ function setupPush() {
   ScriptApp.getProjectTriggers().filter(function(t) { return t.getHandlerFunction() === 'pushFlush'; }).forEach(function(t) { ScriptApp.deleteTrigger(t); });
   ScriptApp.newTrigger('pushFlush').timeBased().everyMinutes(1).create();
   pushAccess_();
+  setSetting_('push_enabled', 'TRUE');
   var n = readPeople_().map(function(p) { return p.name + ' ' + pushTokens_(p.pid).length; }).join(', ');
   Logger.log('Push is set up. Phones with push on: ' + n);
+}
+
+// Push is off unless Settings > push_enabled is TRUE (setupPush turns it on). Taken out of the app for now.
+function pushEnabled_() { return isTrue_(pushSet_().push_enabled); }
+
+// While push is off, clears any alerts left waiting so they never build up in the script's storage. Runs with the hourly sync.
+function pushPurge_() {
+  if (pushEnabled_()) return 0;
+  var props = PropertiesService.getScriptProperties(), n = 0;
+  Object.keys(props.getProperties()).forEach(function(k) { if (k.indexOf('PUSHQ_') === 0) { props.deleteProperty(k); n++; } });
+  return n;
 }
 
 // ---------- settings (tokens and switches) ----------

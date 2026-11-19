@@ -1,5 +1,7 @@
 # Phone push notifications: setup
 
+> **Currently switched off (app v7.6).** The Notifications card was taken out of the app and the server does not queue alerts (Settings `push_enabled` is not TRUE). The sending code (`apps-script/Push.gs`) and `config.js` are kept so it can come back: restore the app's Notifications card from git history (commit c286ccc) and run `setupPush`, which sets `push_enabled` to TRUE.
+
 The code is already in the repo. Push stays off until these steps are done, and nothing else in the app changes.
 
 You can **reuse the Firebase project you made for the Momnie app** (the keys below are the same ones). Each app keeps its own phones and its own sending, so they never mix.

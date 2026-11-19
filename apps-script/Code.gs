@@ -1,6 +1,7 @@
 // ================================================================
 // BC Dads WAG - v7 backend
-// Version: Nov 19, 2026 - v7.5
+// Version: Nov 19, 2026 - v7.6
+//   - v7.6: push notifications switched off (Settings > push_enabled), queued alerts cleared hourly
 //   - v7.5: phone push notifications (Push.gs), feedback from the Me tab, swipe to hide a post,
 //           admin delete (Settings > admins, default Paul)
 //   - v7.4: side bets match dollar for dollar (any amount, uncovered money refunded), weekly badges
@@ -15,7 +16,7 @@
 // This ONE file replaces Code.gs, webapp.gs, appsheet_v6_bridge.gs and Index.html.
 // ================================================================
 
-var V7_VERSION = '7.5';
+var V7_VERSION = '7.6';
 var SB_GRACE_MIN = 90;            // side bets: how long after a period ends before a "didn't happen" is paid out (lets late WHOOP data arrive)
 var APP_SYNC_COOLDOWN_MIN = 5;   // the in-app Sync button pulls WHOOP at most this often, for the whole group
 
@@ -966,6 +967,7 @@ function runSync_(mode, fullWhoop) {
   var started = Date.now();
   try {
     try { ensureParticipantCols_(); } catch (colErr) {}
+    try { pushPurge_(); } catch (pushErr) {}
     var ctx = loadCtx_();
     var whoop = { added: 0, changed: 0, summary: [] };
     if (ctx.currentWeek >= 1) whoop = syncWhoop_(ctx, fullWhoop);
