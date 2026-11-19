@@ -121,12 +121,13 @@ td.wk{color:var(--lime);font-weight:700}
 .bdg.got.title{background:#241E0F;border-color:#5C4718;color:var(--gold)}
 .bdg.got.weekly{background:#10222B;border-color:#1F4A5C;color:#7FD4F5}
 .bdg.got svg{opacity:1}
-nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:6;background:var(--bg);border-top:1px solid #22262C;padding-bottom:env(safe-area-inset-bottom)}
+nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:6;transform:translateZ(0);-webkit-backface-visibility:hidden;background:var(--bg);border-top:1px solid #22262C;padding-bottom:env(safe-area-inset-bottom)}
 nav.tabs div{max-width:560px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr)}
 nav.tabs button{border:0;background:transparent;color:var(--dim);height:62px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:11px;font-weight:700}
 nav.tabs button.on{color:var(--lime)}
-.fab{position:fixed;z-index:8;right:max(16px,calc(50% - 264px));bottom:calc(env(safe-area-inset-bottom) + 78px);width:58px;height:58px;padding:0;border-radius:999px;border:0;background:var(--lime);color:var(--bg);box-shadow:0 10px 30px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center}
-.fab svg{transition:transform .22s ease}.fabon .fab svg{transform:rotate(45deg)}
+.fab{position:fixed;z-index:8;transform:translateZ(0);-webkit-backface-visibility:hidden;right:max(16px,calc(50% - 264px));bottom:calc(env(safe-area-inset-bottom) + 78px);width:58px;height:58px;padding:0;border-radius:999px;border:0;background:var(--lime);color:var(--bg);box-shadow:0 10px 30px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center}
+.fab svg{transition:transform .22s ease}
+.fabm{transform:translateZ(0)}.fabon .fab svg{transform:rotate(45deg)}
 .fabbg{position:fixed;inset:0;z-index:7;background:rgba(8,9,11,.55);opacity:0;pointer-events:none;transition:opacity .2s}
 .fabon .fabbg{opacity:1;pointer-events:auto}
 .fabm{position:fixed;z-index:8;right:max(16px,calc(50% - 264px));bottom:calc(env(safe-area-inset-bottom) + 146px);display:flex;flex-direction:column;align-items:flex-end;gap:10px;pointer-events:none}
@@ -156,7 +157,7 @@ nav.tabs button.on{color:var(--lime)}
 .swp.drag>.swa,.swp.open>.swa{visibility:visible}
 .swa button{border:0;border-radius:16px;width:80px;font-weight:800;font-size:14px;color:#0E1013;background:var(--orange)}
 .swa button.del{background:var(--red)}
-.swc{position:relative;will-change:transform}
+.swc{position:relative}
 .av.live{box-shadow:0 0 0 2px var(--card),0 0 0 4px #3DD68C}
 .av.idle{box-shadow:0 0 0 2px var(--card),0 0 0 4px var(--gold)}
 /* Tracker: a thin rounded box around a name = green = in the app in the last 5 min, yellow = in the last 30 min */
