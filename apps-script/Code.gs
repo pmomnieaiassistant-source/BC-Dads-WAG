@@ -1,6 +1,7 @@
 // ================================================================
 // BC Dads WAG - v7 backend
-// Version: Nov 11, 2026 9:30 PM ET - v7.4
+// Version: Nov 19, 2026 - v7.5
+//   - v7.5: phone push notifications (Push.gs), feedback from the Me tab
 //   - v7.4: side bets match dollar for dollar (any amount, uncovered money refunded), weekly badges
 //   - v7.1: profiles, badges, comment wall, who-reacted, edit posts, duplicate hiding,
 //           initials column, feed safeguard, tidier menu
@@ -13,7 +14,7 @@
 // This ONE file replaces Code.gs, webapp.gs, appsheet_v6_bridge.gs and Index.html.
 // ================================================================
 
-var V7_VERSION = '7.4';
+var V7_VERSION = '7.5';
 var SB_GRACE_MIN = 90;            // side bets: how long after a period ends before a "didn't happen" is paid out (lets late WHOOP data arrive)
 var APP_SYNC_COOLDOWN_MIN = 5;   // the in-app Sync button pulls WHOOP at most this often, for the whole group
 
@@ -28,7 +29,7 @@ var TAB = {
   CYCLES: 'Cycles', EVENTS: 'Feed_Events', COMMENTS: 'Comments',
   REACTIONS: 'Reactions', POTS: 'Bet_Pots', BANK: 'Bank_Log',
   MEMBERS: 'Challenge_Members', WEIGHTS: 'Weights', RUN_LOG: 'Run_Log',
-  TRACKER: 'Tracker', BETS: 'Side_Bets', WAGERS: 'Side_Wagers'
+  TRACKER: 'Tracker', BETS: 'Side_Bets', WAGERS: 'Side_Wagers', FEEDBACK: 'Feedback'
 };
 
 var HEAD = {
@@ -46,6 +47,7 @@ var HEAD = {
   Side_Bets: ['bet_id', 'created_at', 'proposer', 'type', 'status', 'prompt', 'label_a', 'label_b', 'subjects_a', 'subjects_b',
               'stat', 'line', 'question', 'n', 'scoring', 'period', 'period_start', 'period_end', 'date_from', 'date_to', 'week',
               'close_at', 'hidden', 'stake', 'winner', 'settled_at', 'decided_at', 'settled_by', 'result_title', 'result_body'],
+  Feedback: ['feedback_id', 'created_at', 'participant_id', 'name', 'text'],
   Side_Wagers: ['wager_id', 'bet_id', 'participant_id', 'side', 'amount', 'created_at', 'status', 'payout', 'matched']
 };
 
@@ -66,7 +68,8 @@ var DEFAULTS = {
   bank_start_week: '',
   sync_days: '10',
   season_weeks: '20',
-  feed_show_all_whoop: 'FALSE'
+  feed_show_all_whoop: 'FALSE',
+  push_bundle_min: '3'
 };
 
 
@@ -575,7 +578,7 @@ function generateEvents_(ctx) {
 
   var cur = ctx.matrix[cw - 1];
   if (cur && !cur.exempt) {
-    var stillNeed = [];
+    var stillNeed = [], needPids = [];
     cur.cells.forEach(function(c) {
       var name = nm(c.pid);
       if (c.status === 'complete') {
@@ -586,12 +589,12 @@ function generateEvents_(ctx) {
           "Can't reach " + ctx.minDays + ' this week. $' + c.fine + ' to the pot' +
           (c.streak > 1 ? ' - ' + c.streak + ' weeks in a row.' : '.'));
       } else if (c.status === 'dormie') {
-        stillNeed.push(name);
+        stillNeed.push(name); needPids.push(c.pid);
         push('dormie_w' + cw + '_' + c.pid, 'dormie', c.pid, cw, name,
           c.count + ' of ' + ctx.minDays + ' with ' + c.daysLeft + (c.daysLeft === 1 ? ' day' : ' days') +
           ' left. Has to work out every day left this week or he buys the bet.');
       } else if (c.status === 'eligible') {
-        stillNeed.push(name);
+        stillNeed.push(name); needPids.push(c.pid);
       }
     });
     var hour = parseInt(Utilities.formatDate(new Date(), ctx.tz, 'H'), 10);
@@ -613,6 +616,18 @@ function generateEvents_(ctx) {
   }
 
   appendRows_(TAB.EVENTS, add);
+  // Phone alerts for the new posts (each event is only ever created once, so each alert goes out once).
+  try {
+    var all = pushEveryone_(ctx);
+    add.forEach(function(e) {
+      if (e.type === 'dormie') {
+        pushQueue_(e.participant_id, 'updates', "You're dormie", e.body);
+        pushToPeople_(all, 'updates', 'Dormie', e.title + ': ' + e.body, e.participant_id);
+      } else if (e.type === 'buying') pushToPeople_(all, 'updates', e.title, e.body);
+      else if (e.type === 'recap') pushToPeople_(all, 'updates', e.title, e.body);
+      else if (e.type === 'nudge') pushToPeople_(needPids, 'updates', 'Last day to get one in', e.body);
+    });
+  } catch (pe) { Logger.log('push events: ' + pe.message); }
   return add.length;
 }
 
@@ -1091,6 +1106,15 @@ function handleApi_(req) {
   var action = str_(req.action);
   var profilePid = str_(req.profile);
   var ctx;
+
+  // Small actions that never touch the tracker data: no recalculation, quick answer.
+  var LIGHT = { pushToken: apiPushToken_, pushPrefs: apiPushPrefs_, pushTest: apiPushTest_, feedback: apiFeedback_ };
+  if (LIGHT[action]) {
+    var lk = LockService.getScriptLock();
+    if (!lk.tryLock(25000)) return { ok: false, error: 'The tracker is busy for a moment. Try again.' };
+    try { return { ok: true, message: LIGHT[action](me, req) || '' }; } finally { try { lk.releaseLock(); } catch (e3) {} }
+  }
+
   if (action === 'state' || action === 'profile') {
     ctx = loadCtx_();
     var out = { ok: true };
@@ -1193,7 +1217,25 @@ function apiDeleteWorkout_(me, req, ctx) {
   return 'Workout removed.';
 }
 
-function apiReact_(me, req) {
+// Feedback from the Me tab: one row per message in the Feedback tab.
+function apiFeedback_(me, req) {
+  var text = truncate_(str_(req.text), 2000);
+  if (!text) throw new Error('Write something first.');
+  appendRows_(TAB.FEEDBACK, [{ feedback_id: 'f_' + shortId_(), created_at: nowIso_(), participant_id: me.pid, name: me.name, text: text }]);
+  return 'Sent. Thanks for the feedback.';
+}
+
+// Who a post belongs to (for "X fired up your workout" alerts): a workout's owner, a wall's owner, or an event's person.
+function pushOwnerOf_(ctx, target) {
+  if (target.indexOf('wall_') === 0 && ctx.byPid[target.substring(5)]) return { pid: target.substring(5), what: 'wall' };
+  var w = ctx.workouts.filter(function(x) { return x.workout_id === target; })[0];
+  if (w) return { pid: w.participant_id, what: 'workout' };
+  var e = readTable_(TAB.EVENTS).filter(function(x) { return x.event_id === target; })[0];
+  if (e) return { pid: e.type === 'wall' ? str_(e.week) : e.participant_id, what: 'post' };
+  return null;
+}
+
+function apiReact_(me, req, ctx) {
   var target = truncate_(str_(req.target), 120);
   if (!target) throw new Error('Missing post.');
   var sh = tab_(TAB.REACTIONS);
@@ -1205,6 +1247,10 @@ function apiReact_(me, req) {
     }
   }
   appendRows_(TAB.REACTIONS, [{ target_id: target, participant_id: me.pid, created_at: nowIso_() }]);
+  try {
+    var own = pushOwnerOf_(ctx, target);
+    if (own && own.pid && own.pid !== me.pid) pushQueue_(own.pid, 'social', 'Fired up', me.name + ' fired up your ' + (own.what === 'wall' ? 'wall' : own.what) + '.');
+  } catch (pe) { Logger.log('push fire: ' + pe.message); }
   return '';
 }
 
@@ -1223,6 +1269,10 @@ function apiComment_(me, req, ctx) {
       body: text
     }]);
   }
+  try {
+    var own = pushOwnerOf_(ctx, target);
+    if (own && own.pid && own.pid !== me.pid) pushQueue_(own.pid, 'social', 'New comment', me.name + (own.what === 'wall' ? ' wrote on your wall: ' : ' commented: ') + truncate_(text, 100));
+  } catch (pe) { Logger.log('push comment: ' + pe.message); }
   return '';
 }
 
@@ -1802,7 +1852,7 @@ function buildState_(me, ctx) {
     version: V7_VERSION, now: nowIso_(),
     lastSync: str_(PropertiesService.getScriptProperties().getProperty('LAST_SYNC_AT')),
     me: {
-      pid: me.pid, name: me.name, whoop: whoopStatus_(me.pid),
+      pid: me.pid, name: me.name, whoop: whoopStatus_(me.pid), push: pushInfo_(me),
       connectUrl: redirect ? redirect + '?connect=' + encodeURIComponent(me.key) : ''
     },
     rules: { minDays: ctx.minDays, minTime: ctx.minTime, minEffort: ctx.minEffort, baseBet: ctx.baseBet },
@@ -2081,6 +2131,11 @@ function sbSettle_(ctx, bet, wagers, winner, lockedAt, note, byPid) {
       amount: String(round2_(m.matchedTotal * 2)), note: truncate_(bet.result_title, 200) }]);
   }
   updateRow_(TAB.BETS, bet._row, bet);
+  try {
+    var who = [];
+    (wagers || []).forEach(function(w) { if (who.indexOf(w.participant_id) === -1) who.push(w.participant_id); });
+    pushToPeople_(who, 'bets', winner === 'void' ? 'Side bet off' : 'Side bet settled', bet.result_title + (winner === 'void' ? '' : ' ' + truncate_(bet.result_body, 100)));
+  } catch (pe) { Logger.log('push settle: ' + pe.message); }
 }
 
 // Checks every open stat bet and pays out the ones that are decided. Returns how many it settled.
@@ -2218,6 +2273,10 @@ function apiBetPropose_(me, req, ctx) {
   bet.close_at = new Date(closeMs).toISOString();
   appendRows_(TAB.BETS, [bet]);
   appendRows_(TAB.WAGERS, [{ wager_id: 'w_' + shortId_(), bet_id: bet.bet_id, participant_id: me.pid, side: side, amount: String(amount), created_at: nowIso_(), status: 'in', payout: '', matched: '' }]);
+  try {
+    var skip = csv_(bet.hidden);
+    pushToPeople_(pushEveryone_(ctx).filter(function(p) { return skip.indexOf(p) === -1; }), 'bets', 'New side bet', me.name + ': ' + bet.prompt, me.pid);
+  } catch (pe) { Logger.log('push bet: ' + pe.message); }
   return 'Side bet posted.';
 }
 
