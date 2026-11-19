@@ -156,6 +156,10 @@ nav.tabs button.on{color:var(--lime)}
 .men{color:var(--lime);font-weight:700}
 .msugg{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
 .news h2{font-size:24px;margin-top:6px}.news .md p{margin:10px 0;color:var(--soft)}.news .md ul{margin:10px 0;padding-left:20px;color:var(--soft)}.news .md li{margin:4px 0}.news .md a{color:var(--lime)}
+.phs{display:grid;grid-template-columns:1fr 1fr;gap:6px}.phs.one{grid-template-columns:1fr}
+.phs button{border:0;padding:0;background:#22262C;border-radius:12px;overflow:hidden;display:block}
+.phs img{width:100%;aspect-ratio:4/3;object-fit:cover;display:block}
+.phbig{width:100%;border-radius:14px;display:block;background:#22262C}
 .link{color:var(--lime);background:none;border:0;padding:0;font-weight:700;font-size:14px}
 .spin{opacity:.5}
 h2.h{font-size:18px}
@@ -389,6 +393,7 @@ h2.h{font-size:18px}
       '<button class="pill" data-a="toggleC" data-id="' + esc(it.id) + '">' + IC.msg + '<span>' + (n === 0 ? 'Comment' : n + (n === 1 ? ' comment' : ' comments')) + '</span></button>' +
       '<span style="margin-left:auto;display:flex;gap:14px">' +
       (it.canEdit ? '<button class="link" style="color:var(--dim)" data-a="editW" data-id="' + esc(it.id) + '">' + (it.canEdit === 'note' ? (it.note ? 'Edit note' : 'Add note') : 'Edit') + '</button>' : '') +
+      (it.kind === 'w' && it.pid === S.me.pid && (it.photos || []).length < 4 ? '<button class="link" style="color:var(--dim)" data-a="photoPick" data-id="' + esc(it.id) + '">Photo</button>' : '') +
       (it.canDelete ? '<button class="link" style="color:var(--dim)" data-a="delW" data-id="' + esc(it.id) + '">Delete</button>' : '') + '</span></div>';
     if (picking) h += '<div class="rpick" role="group" aria-label="React">' + RK.map(function (k) {
       var on = (R[k] || []).indexOf(S.me.pid) !== -1;
@@ -421,10 +426,42 @@ h2.h{font-size:18px}
       '<div class="stats"><div class="stat"><span>Time</span><b>' + it.minutes + 'm</b></div>' +
       '<div class="stat"><span>' + second[0] + '</span><b style="color:var(--lime)">' + esc(second[1]) + '</b></div>' +
       '<div class="stat"><span>Week</span><b>' + weekCount(it.pid) + '/' + S.rules.minDays + '</b></div></div>') +
-      (it.note ? '<p style="color:var(--soft)">' + esc(it.note) + '</p>' : '') +
+      (it.note ? '<p style="color:var(--soft)">' + esc(it.note) + '</p>' : '') + photosHTML(it) +
       (!it.ok ? '<p class="sub">Does not count toward the week (under ' + S.rules.minTime + ' min' + (it.source === 'whoop' ? ' or strain ' + S.rules.minEffort : '') + ').</p>' : '') +
       actions(it) + '</article>';
   }
+  // Photos on workout posts: Drive thumbnails (or the phone's own copy while it uploads).
+  function photoSrc(ph, w) { return ph.src || 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(ph.fileId) + '&sz=w' + (w || 800); }
+  function photosHTML(it) {
+    var ps = it.photos || []; if (!ps.length) return '';
+    return '<div class="phs' + (ps.length === 1 ? ' one' : '') + '">' + ps.map(function (ph) {
+      return '<button data-a="photoView" data-id="' + esc(ph.id) + '" aria-label="Open photo"><img src="' + esc(photoSrc(ph, ps.length === 1 ? 1000 : 600)) + '" alt="" loading="lazy"></button>';
+    }).join('') + '</div>';
+  }
+  function findPhoto(id) {
+    var all = S.feed.slice(); for (var k in ui.profiles) all = all.concat(ui.profiles[k].items || []);
+    for (var i = 0; i < all.length; i++) { var ps = all[i].photos || []; for (var j = 0; j < ps.length; j++) if (ps[j].id === id) return { ph: ps[j], it: all[i] }; }
+    return null;
+  }
+  // Shrinks a photo on the phone (longest side 1600 px, JPEG) so uploads stay small and quick.
+  function shrinkPhoto(file) {
+    return new Promise(function (ok, no) {
+      var url = URL.createObjectURL(file), img = new Image();
+      img.onload = function () {
+        var k = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight)), c = document.createElement('canvas');
+        c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url); ok(c.toDataURL('image/jpeg', 0.82));
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); no(new Error("That file isn't a photo the app can read.")); };
+      img.src = url;
+    });
+  }
+  function photoSheet(id) {
+    var f = findPhoto(id); if (!f) return sheetWrap('Photo', '<div class="empty">That photo is gone.</div>', '');
+    var mine = f.ph.pid === S.me.pid || S.me.admin;
+    return sheetWrap(person(f.it.pid) + "'s photo", '<img class="phbig" src="' + esc(photoSrc(f.ph, 1600)) + '" alt="">', mine && !f.ph.src ? '<button class="btn ghost" data-a="photoDel" data-id="' + esc(id) + '">Delete photo</button>' : '');
+  }
+
   function cards(items, swipe) {
     return items.map(function (it) {
       var c = it.kind === 'w' ? workoutCard(it) : eventCard(it);
@@ -967,7 +1004,7 @@ h2.h{font-size:18px}
     if (t.t === 'bet') grabBet();
     var body = document.getElementById('sheetBody');
     var y = body && el.getAttribute('data-key') === sheetKey(t) ? body.scrollTop : 0;
-    el.innerHTML = t.t === 'news' ? newsSheet() : t.t === 'newsAll' ? newsAllSheet() : t.t === 'feedback' ? feedbackSheet() : t.t === 'log' ? logSheet() : t.t === 'bet' ? betSheet() : t.t === 'betd' ? betDetailSheet(t.id) : t.t === 'week' ? weekSheet(t.week) : t.t === 'profile' ? profileSheet(t.pid) : badgeSheet(t.id, t.pid);
+    el.innerHTML = t.t === 'photo' ? photoSheet(t.id) : t.t === 'news' ? newsSheet() : t.t === 'newsAll' ? newsAllSheet() : t.t === 'feedback' ? feedbackSheet() : t.t === 'log' ? logSheet() : t.t === 'bet' ? betSheet() : t.t === 'betd' ? betDetailSheet(t.id) : t.t === 'week' ? weekSheet(t.week) : t.t === 'profile' ? profileSheet(t.pid) : badgeSheet(t.id, t.pid);
     el.setAttribute('data-key', sheetKey(t));
     if (y) document.getElementById('sheetBody').scrollTop = y;
   }
@@ -1078,6 +1115,26 @@ h2.h{font-size:18px}
     newsNext: function () { (ui.news || []).shift(); ui.stack.pop(); if (ui.news && ui.news.length) pushSheet({ t: 'news' }); else render(); },
     newsHide: function () { var u = (ui.news || [])[0]; if (u) { u.hidden = true; api('updateHide', { id: u.id }, true); } ACT.newsNext(); },
     newsAll: function () { pushSheet({ t: 'newsAll' }); },
+    photoPick: function (id) {
+      var inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.hidden = true;
+      inp.onchange = function () {
+        var file = inp.files && inp.files[0]; inp.remove(); if (!file) return;
+        shrinkPhoto(file).then(function (data) {
+          var ph = { id: 'tmp_ph' + Date.now(), pid: S.me.pid, src: data };
+          findItem(id).forEach(function (it) { it.photos = (it.photos || []).concat([ph]); });
+          render();
+          queue('photoAdd', { target: id, data: data });
+        }).catch(function (e) { toast(e.message, true); });
+      };
+      document.body.appendChild(inp); inp.click();
+    },
+    photoView: function (id) { pushSheet({ t: 'photo', id: id }); },
+    photoDel: function (id) {
+      if (!confirm('Delete this photo?')) return;
+      var f = findPhoto(id); if (f) findItem(f.it.id).forEach(function (it) { it.photos = (it.photos || []).filter(function (x) { return x.id !== id; }); });
+      ACT.closeSheet();
+      queue('photoDelete', { id: id });
+    },
     viewPost: function (id) {
       closeAll(); ui.tab = 'feed'; ui.filter = 'all'; render();
       var el = document.getElementById('p-' + id);

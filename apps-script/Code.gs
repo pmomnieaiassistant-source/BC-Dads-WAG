@@ -1,6 +1,7 @@
 // ================================================================
 // BC Dads WAG - v7 backend
-// Version: Nov 19, 2026 - v7.7
+// Version: Nov 19, 2026 - v7.8
+//   - v7.8: photos on workout posts (Drive folder, Photos tab). Run setupPhotos once to approve Drive access.
 //   - v7.7: reactions beyond fire, last-seen, What's new messages (Updates tab)
 //   - v7.6: push notifications switched off (Settings > push_enabled), queued alerts cleared hourly
 //   - v7.5: phone push notifications (Push.gs), feedback from the Me tab, swipe to hide a post,
@@ -17,7 +18,7 @@
 // This ONE file replaces Code.gs, webapp.gs, appsheet_v6_bridge.gs and Index.html.
 // ================================================================
 
-var V7_VERSION = '7.7';
+var V7_VERSION = '7.8';
 var SB_GRACE_MIN = 90;            // side bets: how long after a period ends before a "didn't happen" is paid out (lets late WHOOP data arrive)
 var APP_SYNC_COOLDOWN_MIN = 5;   // the in-app Sync button pulls WHOOP at most this often, for the whole group
 
@@ -32,7 +33,7 @@ var TAB = {
   CYCLES: 'Cycles', EVENTS: 'Feed_Events', COMMENTS: 'Comments',
   REACTIONS: 'Reactions', POTS: 'Bet_Pots', BANK: 'Bank_Log',
   MEMBERS: 'Challenge_Members', WEIGHTS: 'Weights', RUN_LOG: 'Run_Log',
-  TRACKER: 'Tracker', BETS: 'Side_Bets', WAGERS: 'Side_Wagers', FEEDBACK: 'Feedback', UPDATES: 'Updates'
+  TRACKER: 'Tracker', BETS: 'Side_Bets', WAGERS: 'Side_Wagers', FEEDBACK: 'Feedback', UPDATES: 'Updates', PHOTOS: 'Photos'
 };
 
 var HEAD = {
@@ -43,6 +44,7 @@ var HEAD = {
   Comments: ['comment_id', 'target_id', 'participant_id', 'text', 'created_at'],
   Reactions: ['target_id', 'participant_id', 'created_at', 'kind'],
   Updates: ['update_id', 'date', 'title', 'message', 'hidden_from'],
+  Photos: ['photo_id', 'target_id', 'participant_id', 'file_id', 'created_at'],
   Bet_Pots: ['week', 'end_amount', 'members', 'settled_by', 'settled_at'],
   Bank_Log: ['entry_id', 'created_at', 'type', 'participant_id', 'week', 'amount', 'note'],
   Challenge_Members: ['challenge', 'participant_id', 'joined_at'],
@@ -1135,7 +1137,7 @@ function handleApi_(req) {
     logWorkout: apiLogWorkout_, editWorkout: apiEditWorkout_, deleteWorkout: apiDeleteWorkout_,
     react: apiReact_, comment: apiComment_, deleteComment: apiDeleteComment_,
     settle: apiSettle_, payment: apiPayment_, join: apiJoin_, leave: apiLeave_, weight: apiWeight_,
-    betPropose: apiBetPropose_, betPlace: apiBetPlace_, betResolve: apiBetResolve_, adminDelete: apiAdminDelete_
+    betPropose: apiBetPropose_, betPlace: apiBetPlace_, betResolve: apiBetResolve_, adminDelete: apiAdminDelete_, photoAdd: apiPhotoAdd_, photoDelete: apiPhotoDelete_
   };
   if (action === 'syncNow') return apiSyncNow_(me, profilePid);
   if (!handlers[action]) return { ok: false, error: 'Unknown action: ' + action };
@@ -1304,6 +1306,43 @@ function apiUpdateHide_(me, req) {
   if (!str_(hit.update_id)) hit.update_id = id;
   updateRow_(TAB.UPDATES, hit._row, hit);
   return '';
+}
+
+// ---------- photos on workout posts ----------
+// Files go in a Drive folder ("BC Dads WAG photos", shared view-only by link so the app can show them).
+// One row per photo in the Photos tab. Up to 4 per post. Only the post's owner adds; the owner or the admin deletes.
+var PHOTO_MAX = 4;
+function photoFolder_() {
+  var id = str_(readSettings_().photo_folder_id), f = null;
+  if (id) { try { f = DriveApp.getFolderById(id); if (f.isTrashed()) f = null; } catch (e) { f = null; } }
+  if (!f) { f = DriveApp.createFolder('BC Dads WAG photos'); setSetting_('photo_folder_id', f.getId()); }
+  return f;
+}
+// Run once from the Apps Script editor after this version is deployed: approves Drive access and makes the folder.
+function setupPhotos() { Logger.log('Photos are ready. Folder: ' + photoFolder_().getUrl()); }
+
+function apiPhotoAdd_(me, req, ctx) {
+  var target = truncate_(str_(req.target), 120);
+  var own = pushOwnerOf_(ctx, target);
+  if (!own || own.what !== 'workout' || own.pid !== me.pid) throw new Error('You can add photos to your own workouts.');
+  var have = readTable_(TAB.PHOTOS).filter(function(x) { return x.target_id === target; }).length;
+  if (have >= PHOTO_MAX) throw new Error('That post already has ' + PHOTO_MAX + ' photos.');
+  var m = str_(req.data).match(/^data:image\/(jpeg|png);base64,(.+)$/);
+  if (!m) throw new Error("That photo couldn't be read.");
+  if (m[2].length > 6000000) throw new Error('That photo is too big.');
+  var file = photoFolder_().createFile(Utilities.newBlob(Utilities.base64Decode(m[2]), 'image/' + m[1], 'bcd_' + me.pid + '_' + Date.now() + (m[1] === 'png' ? '.png' : '.jpg')));
+  try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (e) { Logger.log('photo sharing: ' + e.message); }
+  appendRows_(TAB.PHOTOS, [{ photo_id: 'ph_' + shortId_(), target_id: target, participant_id: me.pid, file_id: file.getId(), created_at: nowIso_() }]);
+  return 'Photo added.';
+}
+function apiPhotoDelete_(me, req, ctx) {
+  var id = str_(req.id), hit = null;
+  readTable_(TAB.PHOTOS).forEach(function(x) { if (x.photo_id === id) hit = x; });
+  if (!hit) return '';
+  if (hit.participant_id !== me.pid && !isAdmin_(me, ctx.settings)) throw new Error('You can only delete your own photos.');
+  try { DriveApp.getFileById(hit.file_id).setTrashed(true); } catch (e) { Logger.log('photo trash: ' + e.message); }
+  tab_(TAB.PHOTOS).deleteRow(hit._row);
+  return 'Photo deleted.';
 }
 
 // Reactions: fire (the original) plus a few more. Each person can give each kind once per post (tap again to take it back).
@@ -1668,6 +1707,11 @@ function feedItems_(me, ctx, onlyPid, limit) {
     if (!reacts[t][k]) reacts[t][k] = [];
     if (reacts[t][k].indexOf(r.participant_id) === -1) reacts[t][k].push(r.participant_id);
   });
+  var photos = {};
+  readTable_(TAB.PHOTOS).forEach(function(x) {
+    var t = alias[x.target_id] || x.target_id;
+    (photos[t] = photos[t] || []).push({ id: x.photo_id, fileId: x.file_id, pid: x.participant_id, ts: x.created_at });
+  });
   var comments = {};
   readTable_(TAB.COMMENTS).forEach(function(c) {
     var t = alias[c.target_id] || c.target_id;
@@ -1675,6 +1719,7 @@ function feedItems_(me, ctx, onlyPid, limit) {
     comments[t].push({ id: c.comment_id, pid: c.participant_id, text: c.text, ts: c.created_at });
   });
   items.forEach(function(it) {
+    it.photos = (photos[it.id] || []).sort(function(a, b) { return String(a.ts).localeCompare(String(b.ts)); });
     it.reacts = reacts[it.id] || {};
     it.firedBy = it.reacts.fire || [];
     it.fires = it.firedBy.length;
