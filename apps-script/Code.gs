@@ -1,6 +1,7 @@
 // ================================================================
 // BC Dads WAG - v7 backend
-// Version: Nov 19, 2026 - v7.6
+// Version: Nov 19, 2026 - v7.7
+//   - v7.7: reactions beyond fire, last-seen, What's new messages (Updates tab)
 //   - v7.6: push notifications switched off (Settings > push_enabled), queued alerts cleared hourly
 //   - v7.5: phone push notifications (Push.gs), feedback from the Me tab, swipe to hide a post,
 //           admin delete (Settings > admins, default Paul)
@@ -16,7 +17,7 @@
 // This ONE file replaces Code.gs, webapp.gs, appsheet_v6_bridge.gs and Index.html.
 // ================================================================
 
-var V7_VERSION = '7.6';
+var V7_VERSION = '7.7';
 var SB_GRACE_MIN = 90;            // side bets: how long after a period ends before a "didn't happen" is paid out (lets late WHOOP data arrive)
 var APP_SYNC_COOLDOWN_MIN = 5;   // the in-app Sync button pulls WHOOP at most this often, for the whole group
 
@@ -31,7 +32,7 @@ var TAB = {
   CYCLES: 'Cycles', EVENTS: 'Feed_Events', COMMENTS: 'Comments',
   REACTIONS: 'Reactions', POTS: 'Bet_Pots', BANK: 'Bank_Log',
   MEMBERS: 'Challenge_Members', WEIGHTS: 'Weights', RUN_LOG: 'Run_Log',
-  TRACKER: 'Tracker', BETS: 'Side_Bets', WAGERS: 'Side_Wagers', FEEDBACK: 'Feedback'
+  TRACKER: 'Tracker', BETS: 'Side_Bets', WAGERS: 'Side_Wagers', FEEDBACK: 'Feedback', UPDATES: 'Updates'
 };
 
 var HEAD = {
@@ -40,7 +41,8 @@ var HEAD = {
   Cycles: ['cycle_key', 'participant_id', 'cycle_date', 'strain', 'updated_at'],
   Feed_Events: ['event_id', 'created_at', 'type', 'participant_id', 'week', 'title', 'body', 'deleted'],
   Comments: ['comment_id', 'target_id', 'participant_id', 'text', 'created_at'],
-  Reactions: ['target_id', 'participant_id', 'created_at'],
+  Reactions: ['target_id', 'participant_id', 'created_at', 'kind'],
+  Updates: ['update_id', 'date', 'title', 'message', 'hidden_from'],
   Bet_Pots: ['week', 'end_amount', 'members', 'settled_by', 'settled_at'],
   Bank_Log: ['entry_id', 'created_at', 'type', 'participant_id', 'week', 'amount', 'note'],
   Challenge_Members: ['challenge', 'participant_id', 'joined_at'],
@@ -1106,13 +1108,14 @@ function handleApi_(req) {
   var me = null;
   if (key) readPeople_().forEach(function(p) { if (p.key && p.key === key && p.active) me = p; });
   if (!me) return { ok: false, error: 'bad_key' };
+  seenMark_(me);
 
   var action = str_(req.action);
   var profilePid = str_(req.profile);
   var ctx;
 
   // Small actions that never touch the tracker data: no recalculation, quick answer.
-  var LIGHT = { pushToken: apiPushToken_, pushPrefs: apiPushPrefs_, pushTest: apiPushTest_, feedback: apiFeedback_, hidePost: apiHidePost_, unhidePosts: apiHidePost_ };
+  var LIGHT = { updateHide: apiUpdateHide_, pushToken: apiPushToken_, pushPrefs: apiPushPrefs_, pushTest: apiPushTest_, feedback: apiFeedback_, hidePost: apiHidePost_, unhidePosts: apiHidePost_ };
   if (LIGHT[action]) {
     var lk = LockService.getScriptLock();
     if (!lk.tryLock(25000)) return { ok: false, error: 'The tracker is busy for a moment. Try again.' };
@@ -1269,18 +1272,58 @@ function pushOwnerOf_(ctx, target) {
   return null;
 }
 
+// Last time each person had the app open (any call from their phone). One script property each, written at most once a minute.
+function seenMark_(me) {
+  try {
+    var c = CacheService.getScriptCache();
+    if (c.get('seen_' + me.pid)) return;
+    c.put('seen_' + me.pid, '1', 60);
+    PropertiesService.getScriptProperties().setProperty('SEEN_' + me.pid, nowIso_());
+  } catch (e) { Logger.log('seenMark_: ' + e.message); }
+}
+function seenAll_() {
+  var all = PropertiesService.getScriptProperties().getProperties(), out = {};
+  Object.keys(all).forEach(function(k) { if (k.indexOf('SEEN_') === 0) out[k.substring(5)] = all[k]; });
+  return out;
+}
+
+// What's new: rows Paul writes in the Updates tab (update_id, date, title, message, hidden_from).
+// Each one pops up on everyone's phone until they tap Hide (their id goes in hidden_from).
+function updatesFor_(me) {
+  return readTable_(TAB.UPDATES).filter(function(u) { return str_(u.title) || str_(u.message); }).map(function(u) {
+    return { id: str_(u.update_id) || ('u' + u._row), date: str_(u.date), title: str_(u.title), message: str_(u.message), hidden: csv_(u.hidden_from).indexOf(me.pid) !== -1 };
+  }).sort(function(a, b) { return b.date.localeCompare(a.date); });
+}
+function apiUpdateHide_(me, req) {
+  var id = str_(req.id), hit = null;
+  readTable_(TAB.UPDATES).forEach(function(u) { if ((str_(u.update_id) || ('u' + u._row)) === id) hit = u; });
+  if (!hit) return '';
+  var list = csv_(hit.hidden_from);
+  if (list.indexOf(me.pid) === -1) list.push(me.pid);
+  hit.hidden_from = list.join(',');
+  if (!str_(hit.update_id)) hit.update_id = id;
+  updateRow_(TAB.UPDATES, hit._row, hit);
+  return '';
+}
+
+// Reactions: fire (the original) plus a few more. Each person can give each kind once per post (tap again to take it back).
+var REACT_KINDS = ['fire', 'beast', 'lol', 'clown', 'dead'];
+function reactKind_(r) { var k = str_(r.kind); return k && REACT_KINDS.indexOf(k) !== -1 ? k : 'fire'; }
+
 function apiReact_(me, req, ctx) {
   var target = truncate_(str_(req.target), 120);
   if (!target) throw new Error('Missing post.');
+  var kind = REACT_KINDS.indexOf(str_(req.kind)) !== -1 ? str_(req.kind) : 'fire';
   var sh = tab_(TAB.REACTIONS);
   var rows = readTable_(TAB.REACTIONS);
   for (var i = 0; i < rows.length; i++) {
-    if (rows[i].target_id === target && rows[i].participant_id === me.pid) {
+    if (rows[i].target_id === target && rows[i].participant_id === me.pid && reactKind_(rows[i]) === kind) {
       sh.deleteRow(rows[i]._row);
       return '';
     }
   }
-  appendRows_(TAB.REACTIONS, [{ target_id: target, participant_id: me.pid, created_at: nowIso_() }]);
+  appendRows_(TAB.REACTIONS, [{ target_id: target, participant_id: me.pid, created_at: nowIso_(), kind: kind }]);
+  if (kind !== 'fire') return '';
   try {
     var own = pushOwnerOf_(ctx, target);
     if (own && own.pid && own.pid !== me.pid) pushQueue_(own.pid, 'social', 'Fired up', me.name + ' fired up your ' + (own.what === 'wall' ? 'wall' : own.what) + '.');
@@ -1618,11 +1661,12 @@ function feedItems_(me, ctx, onlyPid, limit) {
   items.sort(function(a, b) { return new Date(b.ts).getTime() - new Date(a.ts).getTime(); });
   items = items.slice(0, limit);
 
-  var firedBy = {};
+  var reacts = {};
   readTable_(TAB.REACTIONS).forEach(function(r) {
-    var t = alias[r.target_id] || r.target_id;
-    if (!firedBy[t]) firedBy[t] = [];
-    if (firedBy[t].indexOf(r.participant_id) === -1) firedBy[t].push(r.participant_id);
+    var t = alias[r.target_id] || r.target_id, k = reactKind_(r);
+    if (!reacts[t]) reacts[t] = {};
+    if (!reacts[t][k]) reacts[t][k] = [];
+    if (reacts[t][k].indexOf(r.participant_id) === -1) reacts[t][k].push(r.participant_id);
   });
   var comments = {};
   readTable_(TAB.COMMENTS).forEach(function(c) {
@@ -1631,7 +1675,8 @@ function feedItems_(me, ctx, onlyPid, limit) {
     comments[t].push({ id: c.comment_id, pid: c.participant_id, text: c.text, ts: c.created_at });
   });
   items.forEach(function(it) {
-    it.firedBy = firedBy[it.id] || [];
+    it.reacts = reacts[it.id] || {};
+    it.firedBy = it.reacts.fire || [];
     it.fires = it.firedBy.length;
     it.fired = it.firedBy.indexOf(me.pid) !== -1;
     it.comments = (comments[it.id] || []).sort(function(a, b) { return String(a.ts).localeCompare(String(b.ts)); });
@@ -1735,6 +1780,7 @@ function computeStats_(ctx, bank, ch) {
   readTable_(TAB.EVENTS).forEach(function(e) { if (e.participant_id) owner[e.event_id] = e.participant_id; });
   var got = {}, gave = {};
   readTable_(TAB.REACTIONS).forEach(function(r) {
+    if (reactKind_(r) !== 'fire') return;   // badges count fires only
     gave[r.participant_id] = (gave[r.participant_id] || 0) + 1;
     var o = owner[r.target_id];
     if (o && o !== r.participant_id) got[o] = (got[o] || 0) + 1;
@@ -1897,6 +1943,8 @@ function buildState_(me, ctx) {
     matrix: ctx.matrix,
     credits: ctx.credits,
     feed: buildFeed_(me, ctx),
+    seen: seenAll_(),
+    updates: updatesFor_(me),
     bets: sbState_(me, ctx, sbData_(ctx)),
     sbStats: Object.keys(SB_STATS).map(function(k) { return { id: k, label: SB_STATS[k].label, whoop: SB_STATS[k].whoop }; }),
     bank: bank,

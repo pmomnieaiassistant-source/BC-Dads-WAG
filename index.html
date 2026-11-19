@@ -146,6 +146,16 @@ nav.tabs button.on{color:var(--lime)}
 .swa button{border:0;border-radius:16px;width:80px;font-weight:800;font-size:14px;color:#0E1013;background:var(--orange)}
 .swa button.del{background:var(--red)}
 .swc{position:relative;will-change:transform}
+.av.live{box-shadow:0 0 0 2px var(--card),0 0 0 4px #3DD68C}
+.av.idle{box-shadow:0 0 0 2px var(--card),0 0 0 4px var(--gold)}
+.seen{display:inline-flex;align-items:center;gap:6px}.seen i{width:8px;height:8px;border-radius:999px;background:var(--dim)}.seen i.live{background:#3DD68C}.seen i.idle{background:var(--gold)}
+.pill.rx{gap:6px;padding:0 12px}.pill.rx svg{flex:none}.pill.rx.on{background:transparent;border-color:var(--lime);color:var(--lime)}
+.rpick{display:flex;gap:4px;padding:6px;border-radius:999px;background:#1E2228;border:1px solid var(--line2);width:max-content;max-width:100%;margin-top:8px}
+.rpick button{width:54px;height:54px;border-radius:999px;border:0;background:transparent;color:var(--soft);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:10px;font-weight:700;letter-spacing:.02em}
+.rpick button.on{background:var(--lime);color:var(--bg)}
+.men{color:var(--lime);font-weight:700}
+.msugg{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.news h2{font-size:24px;margin-top:6px}.news .md p{margin:10px 0;color:var(--soft)}.news .md ul{margin:10px 0;padding-left:20px;color:var(--soft)}.news .md li{margin:4px 0}.news .md a{color:var(--lime)}
 .link{color:var(--lime);background:none;border:0;padding:0;font-weight:700;font-size:14px}
 .spin{opacity:.5}
 h2.h{font-size:18px}
@@ -181,7 +191,7 @@ h2.h{font-size:18px}
   function freshLog() { return { date: '', type: 'Strength', minutes: 40, effort: 'Hard', note: '', editId: '', noteOnly: false }; }
 
   var S = null;                       // latest state from the server
-  var ui = { fb: '', tab: 'feed', filter: 'all', open: {}, stack: [], busy: false, lastPaid: null, profiles: {}, scrollY: 0, log: freshLog(), bet: null, betPick: null };
+  var ui = { fb: '', pick: null, news: [], newsDone: false, tab: 'feed', filter: 'all', open: {}, stack: [], busy: false, lastPaid: null, profiles: {}, scrollY: 0, log: freshLog(), bet: null, betPick: null };
   var view = document.getElementById('view');
   function top() { return ui.stack[ui.stack.length - 1] || null; }
 
@@ -195,13 +205,48 @@ h2.h{font-size:18px}
     if (n.length <= 1) return n.join('');
     return n.slice(0, -1).join(', ') + ' and ' + n[n.length - 1];
   }
+  // Reactions: fire plus four more, drawn as line icons to match the rest of the app.
+  var RK = ['fire', 'beast', 'lol', 'clown', 'dead'];
+  var RL = { fire: 'Fire', beast: 'Beast', lol: 'LOL', clown: 'Clown', dead: 'Dead' };
+  function rIcon(k) { return IC[k]; }
+
+  // Last seen: green ring = had the app open in the last 5 minutes, yellow = in the last 30.
+  function seenMin(pid) { var t = S && S.seen && S.seen[pid] ? Date.parse(S.seen[pid]) : NaN; return isNaN(t) ? Infinity : (Date.now() - t) / 60000; }
+  function seenCls(pid) { if (!S || !S.me || pid === S.me.pid) return ''; var m = seenMin(pid); return m < 5 ? 'live' : m < 30 ? 'idle' : ''; }
+  function seenTxt(pid) {
+    var m = seenMin(pid); if (m === Infinity) return '';
+    m = Math.floor(m);
+    if (m < 1) return 'Active now';
+    if (m < 60) return 'Last active ' + m + (m === 1 ? ' minute ago' : ' minutes ago');
+    var h = Math.floor(m / 60); if (h < 24) return 'Last active ' + h + (h === 1 ? ' hour ago' : ' hours ago');
+    var d = Math.floor(h / 24); return d < 7 ? 'Last active ' + d + (d === 1 ? ' day ago' : ' days ago') : 'Last active ' + new Date(S.seen[pid]).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
+
+  // @mentions: names of people in the group are highlighted in comments.
+  function mentionHTML(text) {
+    var t = esc(text), names = (S && S.people || []).map(function (p) { return esc(p.name); }).filter(function (n) { return n; })
+      .sort(function (a, b) { return b.length - a.length; }).map(function (n) { return n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); });
+    if (!names.length) return t;
+    return t.replace(new RegExp('(^|[^\\w@])@(' + names.join('|') + ')(?![\\w])', 'gi'), '$1<span class="men">@$2</span>');
+  }
+
+  // Light formatting for What's new messages: **bold**, "- " bullets, blank lines between paragraphs, links.
+  function md(s) {
+    function inline(x) { return esc(x).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>'); }
+    return String(s || '').split(/\n\s*\n/).map(function (p) {
+      var L = p.split('\n');
+      return L.every(function (l) { return /^\s*- /.test(l); }) ? '<ul>' + L.map(function (l) { return '<li>' + inline(l.replace(/^\s*- /, '')) + '</li>'; }).join('') + '</ul>' : '<p>' + L.map(inline).join('<br>') + '</p>';
+    }).join('');
+  }
+
   function money(n) { var r = Math.round(n * 100) / 100, a = Math.abs(r); return (r < 0 ? '-' : '') + '$' + (a % 1 === 0 ? a : a.toFixed(2)); }
   var PALETTE = ['#2F6FEB', '#C2410C', '#0F8A5F', '#8B5CF6', '#B45309', '#0E7490', '#BE185D', '#4D7C0F', '#6D28D9', '#B91C1C', '#1D4ED8', '#047857'];
   function avatar(pid, large) {
     var n = 0, p = who(pid), name = p ? p.name : '?';
     for (var i = 0; i < pid.length; i++) n = (n * 31 + pid.charCodeAt(i)) % 997;
     var ini = (p && p.initials ? p.initials : name.substring(0, 2)).toUpperCase().substring(0, 3);
-    return '<button class="av' + (large ? ' lg' : '') + '" style="background:' + PALETTE[n % PALETTE.length] + '" data-a="profile" data-id="' + esc(pid) + '" aria-label="' + esc(name) + ' profile">' + esc(ini) + '</button>';
+    var sc = seenCls(pid);
+    return '<button class="av' + (large ? ' lg' : '') + (sc ? ' ' + sc : '') + '" style="background:' + PALETTE[n % PALETTE.length] + '" data-a="profile" data-id="' + esc(pid) + '" aria-label="' + esc(name) + ' profile">' + esc(ini) + '</button>';
   }
   function ago(ts) {
     var t = new Date(ts).getTime();
@@ -241,17 +286,23 @@ h2.h{font-size:18px}
     feed: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="4" y="4" width="16" height="6" rx="1.5"/><rect x="4" y="14" width="16" height="6" rx="1.5"/></svg>',
     grid: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16M10 4v16"/></svg>',
     me: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>',
+    beast: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 7v10M17.5 7v10M3.5 9.5v5M20.5 9.5v5M6.5 12h11"/></svg>',
+    lol: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M7.8 10.2c.7-.9 1.8-.9 2.5 0M13.7 10.2c.7-.9 1.8-.9 2.5 0M8 13.5h8a4 4 0 0 1-8 0z"/></svg>',
+    clown: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="14.5" r="6.5"/><path d="M8.7 9L12 3.5 15.3 9"/><circle cx="12" cy="2.6" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="15" r="1.7" fill="currentColor" stroke="none"/><path d="M9.5 12.6h.01M14.5 12.6h.01M9.4 17.6c.8.6 1.7.9 2.6.9s1.8-.3 2.6-.9"/></svg>',
+    dead: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a8 8 0 0 0-8 8c0 2.6 1.2 4.4 3 5.5V20a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-3.5c1.8-1.1 3-2.9 3-5.5a8 8 0 0 0-8-8z"/><circle cx="9" cy="11.5" r="1.6" fill="currentColor"/><circle cx="15" cy="11.5" r="1.6" fill="currentColor"/><path d="M10.5 21v-2.2M13.5 21v-2.2"/></svg>',
+    react: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.6 12.8A8.6 8.6 0 1 1 11.2 3.4"/><path d="M8.5 14.5c.9 1.1 2 1.6 3.3 1.6s2.4-.5 3.3-1.6M9 9.8h.01M14.6 9.8h.01M18.5 2.5v6M15.5 5.5h6"/></svg>',
     back: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>'
   };
 
   // ---------- server ----------
-  function api(action, data, quiet) {
+  function api(action, data, quiet, opts) {
+    opts = opts || {};
     var body = { k: KEY, action: action };
     var t = top();
     if (t && t.t === 'profile' && action !== 'profile') body.profile = t.pid;
     for (var k in (data || {})) body[k] = data[k];
     // Only actions that change something lock the screen. A plain refresh never blocks taps.
-    var lock = !quiet && action !== 'state', n = ++apiSeq, finished = false;
+    var lock = !quiet && !opts.noLock && action !== 'state', n = ++apiSeq, finished = false;
     function finish() { if (finished) return; finished = true; if (!quiet) setBusy(-1, lock); }
     if (!quiet) setBusy(1, lock);
     // Give up after 45 seconds (2 minutes for a WHOOP sync) so a stuck request can never leave the app frozen.
@@ -261,13 +312,16 @@ h2.h{font-size:18px}
       .then(function (r) { return r.json(); })
       .then(function (j) {
         clearTimeout(timer); finish();
-        if (j.ok && j.state && n < apiApplied) delete j.state;      // an older answer arriving late must not overwrite newer data
-        if (j.ok && j.state) apiApplied = n;
+        // Use the new data unless: an older answer arrived late, the save queue applies it itself (noState),
+        // or saves are still waiting (a plain refresh would briefly undo them on screen).
+        var keep = !!(j.ok && j.state && !opts.noState && n >= apiApplied && !(outbox.length && (action === 'state' || action === 'profile')));
+        if (j.ok && j.state && !keep && !opts.noState) delete j.state;
+        if (keep) apiApplied = n;
         if (!j.ok) {
           if (j.error === 'bad_key') { KEY = ''; lsSet('bcd_key', ''); renderKeyScreen('That code was not recognized.'); return null; }
           toast(j.error || 'Something went wrong.', true); return null;
         }
-        if (j.state) { S = j.state; lsSet('bcd_state', JSON.stringify(S)); }
+        if (keep) { S = j.state; lsSet('bcd_state', JSON.stringify(S)); }
         if (j.profile) ui.profiles[j.profile.pid] = j.profile;
         var news = (j.badgeNews || []).map(function (n) { return n.text || n.title || ''; });
         if (news.length) toast(news.join(' \u00b7 '), false, 6000);
@@ -277,6 +331,27 @@ h2.h{font-size:18px}
       .catch(function () { clearTimeout(timer); var was = finished; finish(); if (!quiet && !was) toast('Could not reach the tracker. Check your connection.', true); else if (!quiet) toast('That took too long. Pull down to try again.', true); return null; });
   }
   var apiSeq = 0, apiApplied = 0, spinCount = 0, lockCount = 0;
+
+  // ---------- instant saves ----------
+  // Fires, reactions, comments, wall posts and workouts show on screen right away and are sent in the background,
+  // one at a time and in order. Nothing locks the screen. When the last one is saved the app takes the fresh data.
+  // If a save fails, the app says so and reloads from the tracker (a failed workout log reopens with what you typed).
+  var outbox = [];
+  function queue(action, data, onFail) { outbox.push({ action: action, data: data, onFail: onFail }); if (outbox.length === 1) sendNext(); }
+  function sendNext() {
+    var op = outbox[0]; if (!op) return;
+    api(op.action, op.data, false, { noState: true, noLock: true }).then(function (j) {
+      if (!j) {
+        var failed = outbox.splice(0, outbox.length);
+        failed.forEach(function (f) { if (f.onFail) f.onFail(); });
+        api('state', {}, true).then(function (r) { if (r && r.state && !typing()) render(); });
+        return;
+      }
+      outbox.shift();
+      if (!outbox.length && j.state) { S = j.state; apiApplied = apiSeq; lsSet('bcd_state', JSON.stringify(S)); if (!typing()) render(); }
+      sendNext();
+    });
+  }
   // ui.busy = something that changes data is in flight (taps are held). The buttons spin for any visible request.
   function setBusy(d, lock) {
     spinCount = Math.max(0, spinCount + d); if (lock) lockCount = Math.max(0, lockCount + d);
@@ -301,17 +376,27 @@ h2.h{font-size:18px}
       '<button class="btn" data-a="saveKey">Continue</button></div>';
   }
   function actions(it) {
-    var n = it.comments.length;
-    var h = '';
-    if (it.firedBy && it.firedBy.length) h += '<div class="who" style="margin-top:6px">' + IC.fire + '<span>' + nameList(it.firedBy) + '</span></div>';
-    h += '<div class="acts" style="margin-top:6px"><button class="pill' + (it.fired ? ' lime' : '') + '" data-a="fire" data-id="' + esc(it.id) + '" aria-pressed="' + it.fired + '" aria-label="Fire">' + IC.fire + '<span>' + it.fires + '</span></button>' +
+    if (it.pending) return '<div class="sub" style="margin-top:6px">Posting\u2026</div>';
+    var n = it.comments.length, R = it.reacts || {}, h = '', picking = ui.pick === it.id;
+    var given = RK.filter(function (k) { return (R[k] || []).length; });
+    if (given.length) h += '<div class="col" style="gap:4px;margin-top:6px">' + given.map(function (k) { return '<div class="who">' + rIcon(k) + '<span>' + nameList(R[k]) + '</span></div>'; }).join('') + '</div>';
+    function rx(k) {
+      var L = R[k] || [], mine = L.indexOf(S.me.pid) !== -1;
+      return '<button class="pill rx' + (mine ? ' lime' : '') + '" data-a="react" data-k="' + k + '" data-id="' + esc(it.id) + '" aria-pressed="' + mine + '" aria-label="' + RL[k] + '">' + rIcon(k) + '<span>' + L.length + '</span></button>';
+    }
+    h += '<div class="acts" style="margin-top:6px">' + rx('fire') + RK.slice(1).filter(function (k) { return (R[k] || []).length; }).map(rx).join('') +
+      '<button class="pill rx' + (picking ? ' on' : '') + '" data-a="rpick" data-id="' + esc(it.id) + '" aria-label="Add a reaction" aria-expanded="' + picking + '">' + IC.react + '</button>' +
       '<button class="pill" data-a="toggleC" data-id="' + esc(it.id) + '">' + IC.msg + '<span>' + (n === 0 ? 'Comment' : n + (n === 1 ? ' comment' : ' comments')) + '</span></button>' +
       '<span style="margin-left:auto;display:flex;gap:14px">' +
       (it.canEdit ? '<button class="link" style="color:var(--dim)" data-a="editW" data-id="' + esc(it.id) + '">' + (it.canEdit === 'note' ? (it.note ? 'Edit note' : 'Add note') : 'Edit') + '</button>' : '') +
       (it.canDelete ? '<button class="link" style="color:var(--dim)" data-a="delW" data-id="' + esc(it.id) + '">Delete</button>' : '') + '</span></div>';
+    if (picking) h += '<div class="rpick" role="group" aria-label="React">' + RK.map(function (k) {
+      var on = (R[k] || []).indexOf(S.me.pid) !== -1;
+      return '<button class="' + (on ? 'on' : '') + '" data-a="react" data-k="' + k + '" data-id="' + esc(it.id) + '" aria-pressed="' + on + '">' + rIcon(k) + '<span>' + RL[k] + '</span></button>';
+    }).join('') + '</div>';
     if (ui.open[it.id]) {
-      h += '<div class="cm">' + it.comments.map(function (c) { return '<div>' + nameBtn(c.pid) + ' <span style="color:var(--mid)">' + esc(c.text) + '</span><span class="ct">' + esc(ago(c.ts)) + '</span></div>'; }).join('') +
-        '<div class="row"><input class="txt" id="c-' + esc(it.id) + '" placeholder="Add a comment" maxlength="500" aria-label="Add a comment">' +
+      h += '<div class="cm">' + it.comments.map(function (c) { return '<div>' + nameBtn(c.pid) + ' <span style="color:var(--mid)">' + mentionHTML(c.text) + '</span><span class="ct">' + (c.pending ? 'sending' : esc(ago(c.ts))) + '</span></div>'; }).join('') +
+        '<div class="row"><input class="txt" id="c-' + esc(it.id) + '" placeholder="Comment, or @ someone" maxlength="500" aria-label="Add a comment">' +
         '<button class="pill lime" data-a="sendC" data-id="' + esc(it.id) + '">Post</button></div></div>';
     }
     return h;
@@ -711,6 +796,7 @@ h2.h{font-size:18px}
       '<p class="sub">' + (S.me.whoop === 'connected' ? 'Your WHOOP workouts post on their own, about once an hour.' : 'Connect WHOOP and your workouts post on their own. No WHOOP? Just use Log workout, or keep texting.') + '</p>' +
       (S.me.whoop === 'connected' ? '' : '<button class="btn" data-a="connect">' + (S.me.whoop === 'reconnect' ? 'Reconnect WHOOP' : 'Connect WHOOP') + '</button>') + '</section>';
     h += '<section class="card col" style="gap:8px"><b>Put this app on your home screen</b><p class="sub"><b>iPhone:</b> open your personal link in Safari, tap Share, then "Add to Home Screen".<br><b>Android:</b> open it in Chrome, tap the menu, then "Add to Home screen".</p></section>';
+    if ((S.updates || []).length) h += '<p style="text-align:center"><button class="link" data-a="newsAll">What\'s new</button></p>';
     h += '<p style="text-align:center"><button class="link" data-a="feedback">Talk shit and make this app better</button></p>';
     // One version number: the app's version, then the tracker script's (e.g. 7.6.7.6).
     h += '<p class="sub" style="text-align:center">BC Dads WAG v' + esc((self.APP_VERSION || '?') + (S.version ? '.' + S.version : '')) + (self.APP_DATE ? ' \u00b7 ' + esc(self.APP_DATE) : '') + '</p>';
@@ -745,6 +831,26 @@ h2.h{font-size:18px}
 
   function myDayItems(iso) {
     return S.feed.filter(function (f) { return f.kind === 'w' && f.pid === S.me.pid && f.date === iso; });
+  }
+  function showNews() {
+    if (ui.newsDone || !S || !S.updates) return;
+    ui.newsDone = true;
+    ui.news = S.updates.filter(function (u) { return !u.hidden; });
+    if (ui.news.length && !ui.stack.length) pushSheet({ t: 'news' });
+  }
+  function newsBody(u) {
+    var d = /^\d{4}-\d{2}-\d{2}$/.test(u.date) ? ' \u00b7 ' + esc(dayLabel(u.date)) : '';
+    return '<div class="news"><span class="lab">WHAT\'S NEW' + d + '</span>' + (u.title ? '<h2>' + esc(u.title) + '</h2>' : '') + '<div class="md">' + md(u.message) + '</div></div>';
+  }
+  function newsSheet() {
+    var u = (ui.news || [])[0];
+    if (!u) return sheetWrap("What's new", '<div class="empty">Nothing new.</div>', '');
+    return sheetWrap("What's new", newsBody(u) + '<p class="sub">Close shows it again next time. Hide puts it away for good.</p>',
+      '<div class="row" style="gap:10px"><button class="btn ghost" data-a="newsNext">Close</button><button class="btn" data-a="newsHide">Hide</button></div>');
+  }
+  function newsAllSheet() {
+    var all = S.updates || [];
+    return sheetWrap("What's new", all.length ? all.map(newsBody).join('<div style="border-top:1px solid var(--line)"></div>') : '<div class="empty">No messages yet.</div>', '');
   }
   function feedbackSheet() {
     return sheetWrap('Talk shit', '<p class="sub">Tell us what to fix, what to add, or who is not pulling their weight. Everything you send goes straight to the person running the app.</p>' +
@@ -790,7 +896,7 @@ h2.h{font-size:18px}
     var acct = S.bank.accounts.filter(function (a) { return a.pid === pid; })[0];
     var bal = acct ? acct.balance : 0;
     var wLabel = { connected: 'WHOOP connected', reconnect: 'WHOOP disconnected', none: 'No WHOOP' }[p.whoop] || '';
-    var h = '<section class="card row">' + avatar(pid, true) + '<div class="col grow" style="gap:1px"><b style="font-size:20px">' + esc(p.name) + (pid === S.me.pid ? ' (you)' : '') + '</b><span class="sub">' + esc(wLabel) + '</span></div>' +
+    var h = '<section class="card row">' + avatar(pid, true) + '<div class="col grow" style="gap:1px"><b style="font-size:20px">' + esc(p.name) + (pid === S.me.pid ? ' (you)' : '') + '</b><span class="sub">' + esc(wLabel) + '</span>' + (pid !== S.me.pid && seenTxt(pid) ? '<span class="sub seen"><i class="' + seenCls(pid) + '"></i>' + esc(seenTxt(pid)) + '</span>' : '') + '</div>' +
       '<div class="col" style="align-items:flex-end;gap:0"><span class="sub">Balance</span><b class="num ' + (bal < 0 ? 'neg' : (bal > 0 ? 'pos' : '')) + '" style="font-size:20px">' + money(bal) + '</b></div></section>';
 
     h += '<div class="stats"><div class="stat"><span>Workouts</span><b>' + st.total + '</b></div><div class="stat"><span>Weeks made</span><b>' + st.complete + '/' + st.played + '</b></div><div class="stat"><span>Fines</span><b class="' + (st.fines ? 'neg' : '') + '">' + money(st.fines) + '</b></div>' +
@@ -827,7 +933,7 @@ h2.h{font-size:18px}
     h += '<div class="col" style="gap:10px"><span class="lab">Wall</span><div class="row"><input class="txt" id="wallInput" maxlength="500" placeholder="Write on ' + esc(p.name) + '\'s wall" aria-label="Write on the wall"><button class="pill lime" data-a="wallPost" data-id="' + esc(pid) + '">Post</button></div>';
     if (P && P.wall.length) {
       h += '<div class="list">' + P.wall.map(function (c) {
-        return '<div style="align-items:flex-start"><span class="grow">' + nameBtn(c.pid) + ' <span style="color:var(--mid)">' + esc(c.text) + '</span><span class="ct">' + esc(ago(c.ts)) + '</span></span>' + (c.mine ? '<button class="link" style="color:var(--dim)" data-a="wallDel" data-id="' + esc(c.id) + '">Delete</button>' : '') + '</div>';
+        return '<div style="align-items:flex-start"><span class="grow">' + nameBtn(c.pid) + ' <span style="color:var(--mid)">' + mentionHTML(c.text) + '</span><span class="ct">' + (c.pending ? 'sending' : esc(ago(c.ts))) + '</span></span>' + (c.mine ? '<button class="link" style="color:var(--dim)" data-a="wallDel" data-id="' + esc(c.id) + '">Delete</button>' : '') + '</div>';
       }).join('') + '</div>';
     } else if (P) h += '<p class="sub">Nothing on the wall yet.</p>';
     h += '</div>';
@@ -861,7 +967,7 @@ h2.h{font-size:18px}
     if (t.t === 'bet') grabBet();
     var body = document.getElementById('sheetBody');
     var y = body && el.getAttribute('data-key') === sheetKey(t) ? body.scrollTop : 0;
-    el.innerHTML = t.t === 'feedback' ? feedbackSheet() : t.t === 'log' ? logSheet() : t.t === 'bet' ? betSheet() : t.t === 'betd' ? betDetailSheet(t.id) : t.t === 'week' ? weekSheet(t.week) : t.t === 'profile' ? profileSheet(t.pid) : badgeSheet(t.id, t.pid);
+    el.innerHTML = t.t === 'news' ? newsSheet() : t.t === 'newsAll' ? newsAllSheet() : t.t === 'feedback' ? feedbackSheet() : t.t === 'log' ? logSheet() : t.t === 'bet' ? betSheet() : t.t === 'betd' ? betDetailSheet(t.id) : t.t === 'week' ? weekSheet(t.week) : t.t === 'profile' ? profileSheet(t.pid) : badgeSheet(t.id, t.pid);
     el.setAttribute('data-key', sheetKey(t));
     if (y) document.getElementById('sheetBody').scrollTop = y;
   }
@@ -902,18 +1008,33 @@ h2.h{font-size:18px}
     tab: function (id) { ui.tab = id; ui.lastPaid = null; closeAll(); render(); window.scrollTo(0, 0); },
     filter: function (id) { ui.filter = id; render(); },
     toggleC: function (id) { ui.open[id] = !ui.open[id]; render(); var f = document.getElementById(id === 'pay' ? 'payAmt' : (id.indexOf('pot') === 0 ? 'pot-' + id.substring(3) : 'c-' + id)); if (f && ui.open[id]) f.focus(); },
-    fire: function (id) {
-      findItem(id).forEach(function (it) {                       // instant, then confirmed by the server
-        it.fired = !it.fired;
-        it.firedBy = (it.firedBy || []).filter(function (p) { return p !== S.me.pid; });
-        if (it.fired) it.firedBy.push(S.me.pid);
-        it.fires = it.firedBy.length;
+    react: function (id, el) {
+      var k = (el && el.getAttribute('data-k')) || 'fire', me = S.me.pid;
+      findItem(id).forEach(function (it) {
+        var R = it.reacts = it.reacts || {}, was = R[k] || [], L = was.filter(function (p) { return p !== me; });
+        if (L.length === was.length) L.push(me);
+        R[k] = L;
+        if (k === 'fire') { it.firedBy = L; it.fires = L.length; it.fired = L.indexOf(me) !== -1; }
       });
+      if (ui.pick === id) ui.pick = null;
       render();
-      api('react', { target: id }, true).then(function (j) { if (j && !typing()) render(); });
+      queue('react', { target: id, kind: k });
     },
-    sendC: function (id) { var t = val('c-' + id); if (!t) return; api('comment', { target: id, text: t }).then(done); },
-    delW: function (id) { if (!confirm('Delete this workout?')) return; api('deleteWorkout', { id: id }).then(done); },
+    rpick: function (id) { ui.pick = ui.pick === id ? null : id; render(); },
+    sendC: function (id) {
+      var t = val('c-' + id); if (!t) return;
+      var c = { id: 'tmp_' + Date.now(), pid: S.me.pid, text: t, ts: new Date().toISOString(), pending: true };
+      findItem(id).forEach(function (it) { it.comments = (it.comments || []).concat([c]); });
+      render();
+      queue('comment', { target: id, text: t });
+    },
+    delW: function (id) {
+      if (!confirm('Delete this workout?')) return;
+      S.feed = S.feed.filter(function (x) { return x.id !== id; });
+      for (var k in ui.profiles) ui.profiles[k].items = (ui.profiles[k].items || []).filter(function (x) { return x.id !== id; });
+      render();
+      queue('deleteWorkout', { id: id });
+    },
     editW: function (id) {
       var it = findItem(id)[0]; if (!it) return;
       ui.log = { editId: id, noteOnly: it.canEdit === 'note', date: it.date, type: TYPES.indexOf(it.activity) !== -1 ? it.activity : 'Other', minutes: it.minutes || 30, effort: it.effort || 'Moderate', note: it.note || '' };
@@ -934,8 +1055,29 @@ h2.h{font-size:18px}
       api('profile', { pid: pid }, true).then(function (j) { if (j && !typing()) renderSheet(); });
     },
     badge: function (id, el) { pushSheet({ t: 'badge', id: id, pid: el.getAttribute('data-pid') || '' }); },
-    wallPost: function (pid) { var t = val('wallInput'); if (!t) return; api('comment', { target: 'wall_' + pid, text: t }).then(done); },
-    wallDel: function (id) { if (!confirm('Delete this comment?')) return; api('deleteComment', { id: id }).then(done); },
+    wallPost: function (pid) {
+      var t = val('wallInput'); if (!t) return;
+      var P = ui.profiles[pid];
+      if (P) P.wall.unshift({ id: 'tmp_' + Date.now(), pid: S.me.pid, text: t, ts: new Date().toISOString(), mine: false, pending: true });
+      renderSheet();
+      queue('comment', { target: 'wall_' + pid, text: t });
+    },
+    wallDel: function (id) {
+      if (!confirm('Delete this comment?')) return;
+      for (var k in ui.profiles) ui.profiles[k].wall = ui.profiles[k].wall.filter(function (c) { return c.id !== id; });
+      renderSheet();
+      queue('deleteComment', { id: id });
+    },
+    mentionPick: function (name) {
+      var el = mentionEl; if (!el) return;
+      var pos = el.selectionStart || el.value.length, pre = el.value.slice(0, pos).replace(/@[^@\s]*$/, '@' + name + ' ');
+      el.value = pre + el.value.slice(pos); el.focus();
+      try { el.setSelectionRange(pre.length, pre.length); } catch (e) {}
+      var box = document.querySelector('.msugg'); if (box) box.remove();
+    },
+    newsNext: function () { (ui.news || []).shift(); ui.stack.pop(); if (ui.news && ui.news.length) pushSheet({ t: 'news' }); else render(); },
+    newsHide: function () { var u = (ui.news || [])[0]; if (u) { u.hidden = true; api('updateHide', { id: u.id }, true); } ACT.newsNext(); },
+    newsAll: function () { pushSheet({ t: 'newsAll' }); },
     viewPost: function (id) {
       closeAll(); ui.tab = 'feed'; ui.filter = 'all'; render();
       var el = document.getElementById('p-' + id);
@@ -945,15 +1087,21 @@ h2.h{font-size:18px}
     mins: function (id) { ui.log.minutes = Math.max(5, Math.min(300, ui.log.minutes + parseInt(id, 10))); renderSheet(); },
     submitLog: function () {
       var L = ui.log; L.note = val('logNote');
+      var saved = JSON.parse(JSON.stringify(L)), now = new Date().toISOString();
+      function reopen() { ui.log = saved; closeAll(); pushSheet({ t: 'log' }); }
       if (L.editId) {
-        api('editWorkout', { id: L.editId, type: L.type, minutes: L.minutes, effort: L.effort, note: L.note }).then(function (j) {
-          if (!j) return; ui.log = freshLog(); ACT.closeSheet();
+        findItem(L.editId).forEach(function (it) {
+          it.note = L.note; it.editedAt = now;
+          if (!L.noteOnly) { it.minutes = L.minutes; it.activity = L.type; it.effort = L.effort; }
         });
+        queue('editWorkout', { id: L.editId, type: L.type, minutes: L.minutes, effort: L.effort, note: L.note }, reopen);
+        ui.log = freshLog(); ACT.closeSheet();
         return;
       }
-      api('logWorkout', { date: L.date, type: L.type, minutes: L.minutes, effort: L.effort, note: L.note }).then(function (j) {
-        if (!j) return; ui.log = freshLog(); closeAll(); ui.tab = 'feed'; render(); window.scrollTo(0, 0);
-      });
+      S.feed.unshift({ id: 'tmp_w' + Date.now(), kind: 'w', pid: S.me.pid, ts: now, date: L.date, source: 'app', activity: L.type, minutes: L.minutes, strain: null,
+        effort: L.effort, note: L.note, ok: L.minutes >= S.rules.minTime, editedAt: '', canDelete: false, canEdit: '', reacts: {}, firedBy: [], fires: 0, fired: false, comments: [], pending: true });
+      queue('logWorkout', { date: L.date, type: L.type, minutes: L.minutes, effort: L.effort, note: L.note }, reopen);
+      ui.log = freshLog(); closeAll(); ui.tab = 'feed'; render(); window.scrollTo(0, 0);
     },
     settle: function (id) {
       var v = val('pot-' + id); if (v === '' || isNaN(parseFloat(v))) { toast('Enter the total first.', true); return; }
@@ -1034,6 +1182,21 @@ h2.h{font-size:18px}
     if (fn) fn(el.getAttribute('data-id'), el);
   });
 
+  // Typing "@" in a comment or wall post shows the group's names; tapping one fills it in.
+  var mentionEl = null;
+  function mentionBox(el) {
+    var row = el.closest('.row') || el, nx = row.nextElementSibling, box = nx && nx.classList.contains('msugg') ? nx : null;
+    var m = el.value.slice(0, el.selectionStart || 0).match(/(^|\s)@([^@\s]*)$/), q = m ? m[2].toLowerCase() : null;
+    var names = q === null ? [] : (S.people || []).filter(function (p) { return p.active && p.pid !== S.me.pid && p.name.toLowerCase().indexOf(q) === 0; }).map(function (p) { return p.name; }).slice(0, 8);
+    if (!names.length) { if (box) box.remove(); return; }
+    if (!box) { box = document.createElement('div'); box.className = 'msugg'; row.parentNode.insertBefore(box, row.nextSibling); }
+    box.innerHTML = names.map(function (n) { return '<button type="button" class="pill" data-a="mentionPick" data-id="' + esc(n) + '">@' + esc(n) + '</button>'; }).join('');
+    mentionEl = el;
+  }
+  document.addEventListener('input', function (e) { var el = e.target; if (el && el.id && (el.id === 'wallInput' || el.id.indexOf('c-') === 0)) mentionBox(el); });
+  // Keep the keyboard up while tapping a name.
+  document.addEventListener('mousedown', function (e) { if (e.target.closest && e.target.closest('.msugg')) e.preventDefault(); });
+
   document.addEventListener('input', function (e) {
     var el = e.target;
     if (!el || el.id !== 'betAmt') return;
@@ -1113,7 +1276,7 @@ h2.h{font-size:18px}
     if (!KEY) { renderKeyScreen(''); return; }
     var cached = lsGet('bcd_state');
     if (cached && !S) { try { S = JSON.parse(cached); if (!S.badges || !S.stats || !S.bets || !S.bank.openBets || (S.bets[0] && !S.bets[0].pairs)) S = null; else render(); } catch (e) { S = null; } }
-    refresh(false);
+    refresh(false).then(showNews);
   }
   // ---------- getting new versions onto the phone quickly ----------
   // A home-screen app can sit in the background for days without reloading. So: check for a new version whenever the app
@@ -1126,7 +1289,7 @@ h2.h{font-size:18px}
     navigator.serviceWorker.addEventListener('controllerchange', function () {
       if (!hadSW || wait) return;                 // first install: nothing to refresh
       function go() {
-        if (ui.stack.length || ui.busy || spinCount || typing()) return;
+        if (ui.stack.length || ui.busy || spinCount || outbox.length || typing()) return;
         clearInterval(wait); toast('Updating to the new version\u2026'); setTimeout(function () { location.reload(); }, 600);
       }
       wait = setInterval(go, 1500); go();
