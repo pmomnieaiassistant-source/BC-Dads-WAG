@@ -141,11 +141,12 @@ nav.tabs button.on{color:var(--lime)}
 .toast.err{background:#7A271A;color:#fff}
 .banner{background:#2A1C0E;border:1px solid #7A4A16;border-radius:14px;padding:12px 14px;font-size:14px;color:#EBD7BF}
 .empty{color:var(--dim);text-align:center;padding:30px 10px}
-.sw{position:relative;overflow:hidden;border-radius:20px}
-.swa{position:absolute;right:0;top:0;bottom:0;display:flex}
-.swa button{border:0;width:84px;font-weight:800;font-size:14px;color:#0E1013;background:var(--orange)}
+.swp{position:relative;border-radius:16px;overflow:hidden}
+.swp>.swa{position:absolute;right:0;top:0;bottom:0;display:flex;gap:6px;padding-left:6px;visibility:hidden}
+.swp.drag>.swa,.swp.open>.swa{visibility:visible}
+.swa button{border:0;border-radius:16px;width:80px;font-weight:800;font-size:14px;color:#0E1013;background:var(--orange)}
 .swa button.del{background:var(--red)}
-.swc{position:relative;background:var(--bg);will-change:transform}
+.swc{position:relative;will-change:transform}
 .link{color:var(--lime);background:none;border:0;padding:0;font-weight:700;font-size:14px}
 .spin{opacity:.5}
 h2.h{font-size:18px}
@@ -345,7 +346,7 @@ h2.h{font-size:18px}
       var c = it.kind === 'w' ? workoutCard(it) : eventCard(it);
       if (!swipe) return c;
       var canDel = S.me.admin && !(it.kind === 'e' && /^bet/.test(it.type));
-      return '<div class="sw"><div class="swa"><button data-a="hidePost" data-id="' + esc(it.id) + '">Hide</button>' + (canDel ? '<button class="del" data-a="adminDel" data-id="' + esc(it.id) + '">Delete</button>' : '') + '</div><div class="swc">' + c + '</div></div>';
+      return '<div class="swp"><div class="swa"><button data-a="hidePost" data-id="' + esc(it.id) + '">Hide</button>' + (canDel ? '<button class="del" data-a="adminDel" data-id="' + esc(it.id) + '">Delete</button>' : '') + '</div><div class="swc">' + c + '</div></div>';
     }).join('');
   }
 
@@ -1106,10 +1107,11 @@ h2.h{font-size:18px}
   // ---------- swipe a feed card left to Hide (and Delete, for the admin) ----------
   (function () {
     var x0 = null, y0 = 0, el = null, card = null, W = 0, base = 0, moved = false, open = null;
+    function shut(w) { setX(w.querySelector('.swc'), 0, true); w.classList.remove('open'); setTimeout(function () { if (!w.classList.contains('open')) w.classList.remove('drag'); }, 220); }
     function setX(c, x, anim) { c.style.transition = anim ? 'transform .2s ease-out' : 'none'; c.style.transform = x ? 'translateX(' + x + 'px)' : ''; }
     document.addEventListener('touchstart', function (e) {
-      var t = e.target.closest ? e.target.closest('.sw') : null;
-      if (open && open !== t) { setX(open.querySelector('.swc'), 0, true); open = null; }
+      var t = e.target.closest ? e.target.closest('.swp') : null;
+      if (open && open !== t) { shut(open); open = null; }
       el = t; x0 = null; moved = false; if (!el || e.touches.length !== 1) { el = null; return; }
       card = el.querySelector('.swc'); W = el.querySelector('.swa').offsetWidth; base = open === el ? -W : 0;
       x0 = e.touches[0].clientX; y0 = e.touches[0].clientY;
@@ -1118,7 +1120,7 @@ h2.h{font-size:18px}
       if (!el || x0 === null) return;
       var dx = e.touches[0].clientX - x0, dy = e.touches[0].clientY - y0;
       if (!moved && Math.abs(dy) > 12 && Math.abs(dx) < Math.abs(dy)) { el = null; return; }
-      if (Math.abs(dx) > 10) moved = true;
+      if (Math.abs(dx) > 10 && !moved) { moved = true; el.classList.add('drag'); }
       if (moved) setX(card, Math.max(-W, Math.min(0, base + dx)), false);
     }, { passive: true });
     document.addEventListener('touchend', function (e) {
@@ -1126,7 +1128,7 @@ h2.h{font-size:18px}
       var dx = e.changedTouches[0].clientX - x0, was = el; x0 = null;
       if (!moved) return;
       var openIt = base + dx < -W / 2;
-      setX(card, openIt ? -W : 0, true); open = openIt ? was : null;
+      if (openIt) { setX(card, -W, true); was.classList.add('open'); open = was; } else { shut(was); open = null; }
       var stop = function (ev) { if (ev.target.closest && ev.target.closest('.swa')) return; ev.stopPropagation(); ev.preventDefault(); };
       document.addEventListener('click', stop, { capture: true, once: true }); setTimeout(function () { document.removeEventListener('click', stop, { capture: true }); }, 400);
     });
