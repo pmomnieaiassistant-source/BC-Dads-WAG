@@ -172,6 +172,10 @@ nav.tabs button.on{color:var(--lime)}
 .phs button{border:0;padding:0;background:#22262C;border-radius:12px;overflow:hidden;display:block}
 .phs img{width:100%;aspect-ratio:4/3;object-fit:cover;display:block}
 .phbig{width:100%;border-radius:14px;display:block;background:#22262C}
+.tag.u-active{background:#13281D;color:#3DD68C;border-color:#13281D}.tag.u-lapsed{background:#2A2410;color:var(--gold);border-color:#2A2410}
+.tag.u-texting{background:#2A1C0E;color:var(--orange);border-color:#7A4A16}.tag.u-never{background:#261414;color:var(--red);border-color:#261414}
+.amenu>button{display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid #22262C;padding:14px;color:inherit}
+.amenu>button:last-child{border-bottom:0}.amenu svg{flex:none;color:var(--dim)}
 .link{color:var(--lime);background:none;border:0;padding:0;font-weight:700;font-size:14px}
 .spin{opacity:.5}
 h2.h{font-size:18px}
@@ -763,6 +767,56 @@ h2.h{font-size:18px}
     if (done.length) h += '<button class="link" style="text-align:left" data-a="betsDone">View Settled Bets (' + done.length + ')</button>';
     return h;
   }
+  // ---------- admin (Paul only) ----------
+  function agoWords(ts) {
+    var m = Math.floor((Date.now() - Date.parse(ts)) / 60000); if (isNaN(m)) return '';
+    if (m < 1) return 'just now'; if (m < 60) return m + ' min ago';
+    var h = Math.floor(m / 60); if (h < 24) return h + (h === 1 ? ' hour ago' : ' hours ago');
+    var d = Math.floor(h / 24); if (d === 1) return 'yesterday'; if (d < 7) return d + ' days ago';
+    return 'on ' + fmtDay(ts);
+  }
+  function fmtDay(ts) { var d = new Date(ts); return isNaN(d) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); }
+  var CHEV = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>';
+  function adminSheet() {
+    var A = ui.adm, nf = A ? A.feedback.length : 0;
+    function item(a, title, sub) { return '<button data-a="' + a + '"><span class="col grow" style="gap:2px"><b>' + title + '</b><span class="sub" style="font-size:13px">' + sub + '</span></span>' + CHEV + '</button>'; }
+    return sheetWrap('Admin', '<div class="list amenu">' +
+      item('adminUsage', 'Usage', 'Who uses the app, who never has, who went back to texting, how often') +
+      item('adminFeedback', 'Feedback inbox' + (A ? ' (' + nf + ')' : ''), 'What people sent from "Talk shit and make this app better"') + '</div>' +
+      (A ? '' : '<p class="sub">Loading\u2026</p>'), '');
+  }
+  var U_LABEL = { texting: 'BACK TO TEXTING', never: 'NEVER USED', lapsed: 'LAPSED', active: 'USES THE APP' };
+  function usageSheet() {
+    var A = ui.adm; if (!A) return sheetWrap('Usage', '<div class="empty">Loading\u2026</div>', '');
+    var rows = A.usage.filter(function (r) { return r.active; }), n = rows.length;
+    var cnt = function (st) { return rows.filter(function (r) { return r.status === st; }).length; };
+    var used = n - cnt('never'), wk = rows.filter(function (r) { return r.days7 > 0; }).length;
+    var h = '<div class="stats" style="grid-template-columns:repeat(2,minmax(0,1fr))"><div class="stat"><span>Have used the app</span><b>' + used + ' of ' + n + '</b></div><div class="stat"><span>Used it this week</span><b>' + wk + '</b></div>' +
+      '<div class="stat"><span>Never used it</span><b class="' + (cnt('never') ? 'neg' : '') + '">' + cnt('never') + '</b></div><div class="stat"><span>Back to texting</span><b style="color:' + (cnt('texting') ? 'var(--orange)' : 'inherit') + '">' + cnt('texting') + '</b></div></div>';
+    var order = { texting: 0, never: 1, lapsed: 2, active: 3 };
+    rows.sort(function (a, b) { return order[a.status] - order[b.status] || (b.last || '').localeCompare(a.last || '') || a.name.localeCompare(b.name); });
+    h += rows.map(function (r) {
+      var lines = [];
+      if (r.status === 'never') lines.push(r.hasLink ? 'Has a personal link but has never used the app.' : 'Has no personal link yet (run "Make app links").');
+      else {
+        lines.push('Last used ' + agoWords(r.last) + ' \u00b7 first used ' + fmtDay(r.first));
+        lines.push('Used on ' + r.days7 + ' of the last 7 days \u00b7 ' + r.days30 + ' of the last 30 \u00b7 ' + r.daysTotal + ' days in all' + (r.sessions ? ' \u00b7 ' + r.sessions + ' visits since ' + fmtDay(r.trackedSince) : ''));
+      }
+      lines.push('Workouts: ' + r.logs.app + ' in the app \u00b7 ' + r.logs.whoop + ' WHOOP \u00b7 ' + r.logs.text + ' texted' + (r.lastText ? ' (last text ' + esc(dayLabel(r.lastText)) + ')' : ''));
+      if (r.status === 'texting') lines.push('<span style="color:var(--orange)">Used the app, but texted a workout after the last time he opened it.</span>');
+      if (r.whoop === 'reconnect') lines.push('<span class="neg">WHOOP disconnected.</span>');
+      return '<article class="card col" style="gap:6px"><div class="row between">' + nameBtn(r.pid) + '<span class="tag u-' + r.status + '">' + U_LABEL[r.status] + '</span></div>' +
+        lines.map(function (l) { return '<span class="sub" style="font-size:13px">' + (l.indexOf('<span') === 0 ? l : esc(l)) + '</span>'; }).join('') + '</article>';
+    }).join('');
+    h += '<p class="sub" style="font-size:12px">"Used the app" counts opening it and anything done in it (comments, reactions, posts, workouts logged in the app, bets, photos). Visit counts started today; days used include past activity.</p>';
+    return sheetWrap('Usage', h, '');
+  }
+  function feedbackInboxSheet() {
+    var A = ui.adm; if (!A) return sheetWrap('Feedback inbox', '<div class="empty">Loading\u2026</div>', '');
+    return sheetWrap('Feedback inbox (' + A.feedback.length + ')', A.feedback.length ? A.feedback.map(function (f) {
+      return '<article class="card col" style="gap:6px"><div class="row between">' + (who(f.pid) ? nameBtn(f.pid) : '<b>' + esc(f.name) + '</b>') + '<span class="sub" style="font-size:12px">' + esc(ago(f.ts)) + '</span></div><p style="color:var(--soft);white-space:pre-wrap">' + esc(f.text) + '</p></article>';
+    }).join('') : '<div class="empty">No feedback yet.</div>', '');
+  }
   function settledBets() { return (S.bets || []).filter(function (b) { return b.phase === 'settled' || b.phase === 'void'; }); }
   function betsDoneSheet() {
     var done = settledBets();
@@ -862,6 +916,7 @@ h2.h{font-size:18px}
     h += '<section class="card col" style="gap:12px"><div class="row between"><b>WHOOP</b><b class="' + w[1] + '">' + w[0] + '</b></div>' +
       '<p class="sub">' + (S.me.whoop === 'connected' ? 'Your WHOOP workouts post on their own, about once an hour.' : 'Connect WHOOP and your workouts post on their own. No WHOOP? Just use Log workout, or keep texting.') + '</p>' +
       (S.me.whoop === 'connected' ? '' : '<button class="btn" data-a="connect">' + (S.me.whoop === 'reconnect' ? 'Reconnect WHOOP' : 'Connect WHOOP') + '</button>') + '</section>';
+    if (S.me.admin) h += '<section class="card col" style="gap:10px"><div class="row between"><b>Admin</b><span class="sub" style="font-size:12px">Only you see this</span></div><button class="btn ghost" data-a="admin">Open admin</button></section>';
     h += '<section class="card col" style="gap:8px"><b>Put this app on your home screen</b><p class="sub"><b>iPhone:</b> open your personal link in Safari, tap Share, then "Add to Home Screen".<br><b>Android:</b> open it in Chrome, tap the menu, then "Add to Home screen".</p></section>';
     if ((S.updates || []).length) h += '<p style="text-align:center"><button class="link" data-a="newsAll">What\'s new</button></p>';
     h += '<p style="text-align:center"><button class="link" data-a="feedback">Talk shit and make this app better</button></p>';
@@ -1043,7 +1098,7 @@ h2.h{font-size:18px}
     if (t.t === 'bet') grabBet();
     var body = document.getElementById('sheetBody');
     var y = body && el.getAttribute('data-key') === sheetKey(t) ? body.scrollTop : 0;
-    el.innerHTML = t.t === 'betsDone' ? betsDoneSheet() : t.t === 'post' ? postSheet() : t.t === 'photo' ? photoSheet(t.id) : t.t === 'news' ? newsSheet() : t.t === 'newsAll' ? newsAllSheet() : t.t === 'feedback' ? feedbackSheet() : t.t === 'log' ? logSheet() : t.t === 'bet' ? betSheet() : t.t === 'betd' ? betDetailSheet(t.id) : t.t === 'week' ? weekSheet(t.week) : t.t === 'profile' ? profileSheet(t.pid) : badgeSheet(t.id, t.pid);
+    el.innerHTML = t.t === 'admin' ? adminSheet() : t.t === 'usage' ? usageSheet() : t.t === 'fbInbox' ? feedbackInboxSheet() : t.t === 'betsDone' ? betsDoneSheet() : t.t === 'post' ? postSheet() : t.t === 'photo' ? photoSheet(t.id) : t.t === 'news' ? newsSheet() : t.t === 'newsAll' ? newsAllSheet() : t.t === 'feedback' ? feedbackSheet() : t.t === 'log' ? logSheet() : t.t === 'bet' ? betSheet() : t.t === 'betd' ? betDetailSheet(t.id) : t.t === 'week' ? weekSheet(t.week) : t.t === 'profile' ? profileSheet(t.pid) : badgeSheet(t.id, t.pid);
     el.setAttribute('data-key', sheetKey(t));
     if (y) document.getElementById('sheetBody').scrollTop = y;
   }
@@ -1248,6 +1303,15 @@ h2.h{font-size:18px}
       api('payment', { amount: v }).then(function (j) { if (j) { ui.open.pay = false; ui.lastPaid = v; render(); } });
     },
     betsDone: function () { pushSheet({ t: 'betsDone' }); },
+    admin: function () {
+      ui.adm = null; pushSheet({ t: 'admin' });
+      api('adminUsage', {}, true).then(function (j) {
+        if (!j) { toast('Could not load the admin data.', true); return; }
+        ui.adm = { usage: j.usage || [], feedback: j.feedback || [] }; renderSheet();
+      });
+    },
+    adminUsage: function () { pushSheet({ t: 'usage' }); },
+    adminFeedback: function () { pushSheet({ t: 'fbInbox' }); },
     betNew: function () { ui.bet = freshBet(); pushSheet({ t: 'bet' }); },
     bset: function (id, el) {
       grabBet(); var D = ui.bet, k = el.getAttribute('data-k');

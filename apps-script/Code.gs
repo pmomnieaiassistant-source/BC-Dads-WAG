@@ -1,6 +1,7 @@
 // ================================================================
 // BC Dads WAG - v7 backend
-// Version: Nov 19, 2026 - v8.0
+// Version: Nov 19, 2026 - v8.1
+//   - v8.1: admin Usage report (who uses the app, who never has, who went back to texting) and Feedback inbox
 //   - v8.0: last active also counts what people did in the app (comments, reactions, posts, logged workouts)
 //   - v7.9: general posts (text, @tags, photo) alongside workouts; owner can delete their post
 //   - v7.8: photos on workout posts (Drive folder, Photos tab). Run setupPhotos once to approve Drive access.
@@ -20,7 +21,7 @@
 // This ONE file replaces Code.gs, webapp.gs, appsheet_v6_bridge.gs and Index.html.
 // ================================================================
 
-var V7_VERSION = '8.0';
+var V7_VERSION = '8.1';
 var SB_GRACE_MIN = 90;            // side bets: how long after a period ends before a "didn't happen" is paid out (lets late WHOOP data arrive)
 var APP_SYNC_COOLDOWN_MIN = 5;   // the in-app Sync button pulls WHOOP at most this often, for the whole group
 
@@ -1118,6 +1119,13 @@ function handleApi_(req) {
   var profilePid = str_(req.profile);
   var ctx;
 
+  // Admin only: the Usage report and the Feedback inbox (read-only).
+  if (action === 'adminUsage') {
+    var actx = loadCtx_();
+    if (!isAdmin_(me, actx.settings)) return { ok: false, error: 'Only the admin can see this.' };
+    return { ok: true, usage: buildUsage_(actx), feedback: feedbackList_() };
+  }
+
   // Small actions that never touch the tracker data: no recalculation, quick answer.
   var LIGHT = { updateHide: apiUpdateHide_, pushToken: apiPushToken_, pushPrefs: apiPushPrefs_, pushTest: apiPushTest_, feedback: apiFeedback_, hidePost: apiHidePost_, unhidePosts: apiHidePost_ };
   if (LIGHT[action]) {
@@ -1266,6 +1274,64 @@ function apiAdminDelete_(me, req, ctx) {
   throw new Error('That post cannot be deleted.');
 }
 
+// ---------- admin: usage report ----------
+// For each person: when they last used the app, how often (days in the last 7 / 30, sessions since tracking began),
+// what they log through (app, WHOOP, text), and a flag when they used the app but have since gone back to texting.
+// "Used the app" = opened it (tracked since v7.7) or did anything in it (comments, fires, reactions, posts,
+// wall posts, workouts logged in the app, bets, photos, feedback).
+function buildUsage_(ctx) {
+  var tz = ctx.tz, now = Date.now(), act = {};
+  function add(pid, ts) {
+    pid = str_(pid); ts = str_(ts);
+    var ms = Date.parse(ts);
+    if (!pid || !/^\d{4}-\d{2}-\d{2}T/.test(ts) || isNaN(ms)) return;
+    (act[pid] = act[pid] || []).push(ms);
+  }
+  readTable_(TAB.COMMENTS).forEach(function(r) { add(r.participant_id, r.created_at); });
+  readTable_(TAB.REACTIONS).forEach(function(r) { add(r.participant_id, r.created_at); });
+  readTable_(TAB.EVENTS).forEach(function(e) { if (e.type === 'post' || e.type === 'wall') add(e.participant_id, e.created_at); });
+  readTable_(TAB.WAGERS).forEach(function(w) { add(w.participant_id, w.created_at); });
+  readTable_(TAB.FEEDBACK).forEach(function(f) { add(f.participant_id, f.created_at); });
+  readTable_(TAB.PHOTOS).forEach(function(f) { add(f.participant_id, f.created_at); });
+  var src = {};
+  ctx.workouts.forEach(function(w) {
+    var s = str_(w.source).toLowerCase(), pid = w.participant_id;
+    var o = src[pid] = src[pid] || { app: 0, whoop: 0, text: 0, lastText: '', lastAppLog: '' };
+    if (s === 'app') { o.app++; add(pid, w.created_at); if (w._date > o.lastAppLog) o.lastAppLog = w._date; }
+    else if (s === 'whoop') o.whoop++;
+    else if (s === 'sms') { o.text++; if (w._date > o.lastText) o.lastText = w._date; }
+  });
+  var props = PropertiesService.getScriptProperties().getProperties();
+  var d7 = now - 7 * 86400000, d30 = now - 30 * 86400000;
+  var rows = ctx.people.map(function(p) {
+    var ms = (act[p.pid] || []).slice(), u = {};
+    try { u = JSON.parse(props['USAGE_' + p.pid] || '{}') || {}; } catch (e) { u = {}; }
+    var seen = Date.parse(props['SEEN_' + p.pid] || '');
+    if (!isNaN(seen)) ms.push(seen);
+    var days = {};
+    ms.forEach(function(m) { days[Utilities.formatDate(new Date(m), tz, 'yyyy-MM-dd')] = true; });
+    (u.days || []).forEach(function(d) { days[d] = true; });
+    var dayList = Object.keys(days).sort();
+    var last = ms.length ? Math.max.apply(null, ms) : NaN, first = ms.length ? Math.min.apply(null, ms) : NaN;
+    var lastDay = isNaN(last) ? '' : Utilities.formatDate(new Date(last), tz, 'yyyy-MM-dd');
+    var s = src[p.pid] || { app: 0, whoop: 0, text: 0, lastText: '', lastAppLog: '' };
+    var status = isNaN(last) ? 'never' : (s.lastText && s.lastText > lastDay ? 'texting' : (last >= d7 ? 'active' : 'lapsed'));
+    return {
+      pid: p.pid, name: p.name, active: p.active, hasLink: !!p.key, whoop: whoopStatus_(p.pid), status: status,
+      last: isNaN(last) ? '' : new Date(last).toISOString(), first: isNaN(first) ? '' : new Date(first).toISOString(),
+      days7: dayList.filter(function(d) { return Date.parse(d + 'T12:00:00Z') >= d7; }).length,
+      days30: dayList.filter(function(d) { return Date.parse(d + 'T12:00:00Z') >= d30; }).length,
+      daysTotal: dayList.length, sessions: u.sessions || 0, trackedSince: str_(u.since),
+      logs: { app: s.app, whoop: s.whoop, text: s.text }, lastText: s.lastText
+    };
+  });
+  return rows;
+}
+function feedbackList_() {
+  return readTable_(TAB.FEEDBACK).map(function(f) { return { name: str_(f.name), pid: str_(f.participant_id), ts: str_(f.created_at), text: str_(f.text) }; })
+    .sort(function(a, b) { return b.ts.localeCompare(a.ts); }).slice(0, 200);
+}
+
 // Who a post belongs to (for "X fired up your workout" alerts): a workout's owner, a wall's owner, or an event's person.
 function pushOwnerOf_(ctx, target) {
   if (target.indexOf('wall_') === 0 && ctx.byPid[target.substring(5)]) return { pid: target.substring(5), what: 'wall' };
@@ -1277,12 +1343,24 @@ function pushOwnerOf_(ctx, target) {
 }
 
 // Last time each person had the app open (any call from their phone). One script property each, written at most once a minute.
+// Also keeps a small usage record per person (USAGE_<id>): the days they used the app and how many separate
+// sessions (a gap of 30+ minutes starts a new one). Counting started with v8.1.
 function seenMark_(me) {
   try {
     var c = CacheService.getScriptCache();
     if (c.get('seen_' + me.pid)) return;
     c.put('seen_' + me.pid, '1', 60);
-    PropertiesService.getScriptProperties().setProperty('SEEN_' + me.pid, nowIso_());
+    var props = PropertiesService.getScriptProperties(), now = new Date(), prev = Date.parse(props.getProperty('SEEN_' + me.pid) || '');
+    props.setProperty('SEEN_' + me.pid, now.toISOString());
+    var u = {};
+    try { u = JSON.parse(props.getProperty('USAGE_' + me.pid) || '{}') || {}; } catch (e2) { u = {}; }
+    if (!u.since) u.since = now.toISOString();
+    if (isNaN(prev) || now.getTime() - prev > 30 * 60000) u.sessions = (u.sessions || 0) + 1;
+    var day = Utilities.formatDate(now, Session.getScriptTimeZone() || 'America/New_York', 'yyyy-MM-dd');
+    u.days = u.days || [];
+    if (u.days.indexOf(day) === -1) u.days.push(day);
+    u.days = u.days.slice(-120);
+    props.setProperty('USAGE_' + me.pid, JSON.stringify(u));
   } catch (e) { Logger.log('seenMark_: ' + e.message); }
 }
 // Last active = the latest of: opening the app (recorded since v7.7) and anything they did in it
