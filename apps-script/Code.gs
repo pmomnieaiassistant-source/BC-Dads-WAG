@@ -1,6 +1,7 @@
 // ================================================================
 // BC Dads WAG - v7 backend
-// Version: Nov 19, 2026 - v7.8
+// Version: Nov 19, 2026 - v7.9
+//   - v7.9: general posts (text, @tags, photo) alongside workouts; owner can delete their post
 //   - v7.8: photos on workout posts (Drive folder, Photos tab). Run setupPhotos once to approve Drive access.
 //   - v7.7: reactions beyond fire, last-seen, What's new messages (Updates tab)
 //   - v7.6: push notifications switched off (Settings > push_enabled), queued alerts cleared hourly
@@ -18,7 +19,7 @@
 // This ONE file replaces Code.gs, webapp.gs, appsheet_v6_bridge.gs and Index.html.
 // ================================================================
 
-var V7_VERSION = '7.8';
+var V7_VERSION = '7.9';
 var SB_GRACE_MIN = 90;            // side bets: how long after a period ends before a "didn't happen" is paid out (lets late WHOOP data arrive)
 var APP_SYNC_COOLDOWN_MIN = 5;   // the in-app Sync button pulls WHOOP at most this often, for the whole group
 
@@ -1137,7 +1138,7 @@ function handleApi_(req) {
     logWorkout: apiLogWorkout_, editWorkout: apiEditWorkout_, deleteWorkout: apiDeleteWorkout_,
     react: apiReact_, comment: apiComment_, deleteComment: apiDeleteComment_,
     settle: apiSettle_, payment: apiPayment_, join: apiJoin_, leave: apiLeave_, weight: apiWeight_,
-    betPropose: apiBetPropose_, betPlace: apiBetPlace_, betResolve: apiBetResolve_, adminDelete: apiAdminDelete_, photoAdd: apiPhotoAdd_, photoDelete: apiPhotoDelete_
+    betPropose: apiBetPropose_, betPlace: apiBetPlace_, betResolve: apiBetResolve_, adminDelete: apiAdminDelete_, photoAdd: apiPhotoAdd_, photoDelete: apiPhotoDelete_, post: apiPost_, deletePost: apiDeletePost_
   };
   if (action === 'syncNow') return apiSyncNow_(me, profilePid);
   if (!handlers[action]) return { ok: false, error: 'Unknown action: ' + action };
@@ -1270,7 +1271,7 @@ function pushOwnerOf_(ctx, target) {
   var w = ctx.workouts.filter(function(x) { return x.workout_id === target; })[0];
   if (w) return { pid: w.participant_id, what: 'workout' };
   var e = readTable_(TAB.EVENTS).filter(function(x) { return x.event_id === target; })[0];
-  if (e) return { pid: e.type === 'wall' ? str_(e.week) : e.participant_id, what: 'post' };
+  if (e) return { pid: e.type === 'wall' ? str_(e.week) : e.participant_id, what: e.type === 'post' ? 'userpost' : 'post' };
   return null;
 }
 
@@ -1324,7 +1325,7 @@ function setupPhotos() { Logger.log('Photos are ready. Folder: ' + photoFolder_(
 function apiPhotoAdd_(me, req, ctx) {
   var target = truncate_(str_(req.target), 120);
   var own = pushOwnerOf_(ctx, target);
-  if (!own || own.what !== 'workout' || own.pid !== me.pid) throw new Error('You can add photos to your own workouts.');
+  if (!own || (own.what !== 'workout' && own.what !== 'userpost') || own.pid !== me.pid) throw new Error('You can add photos to your own posts and workouts.');
   var have = readTable_(TAB.PHOTOS).filter(function(x) { return x.target_id === target; }).length;
   if (have >= PHOTO_MAX) throw new Error('That post already has ' + PHOTO_MAX + ' photos.');
   var m = str_(req.data).match(/^data:image\/(jpeg|png);base64,(.+)$/);
@@ -1343,6 +1344,30 @@ function apiPhotoDelete_(me, req, ctx) {
   try { DriveApp.getFileById(hit.file_id).setTrashed(true); } catch (e) { Logger.log('photo trash: ' + e.message); }
   tab_(TAB.PHOTOS).deleteRow(hit._row);
   return 'Photo deleted.';
+}
+
+// ---------- general posts ----------
+// Anyone can post text (with @tags) and an optional photo, without logging a workout.
+// Stored in Feed_Events as type "post", so fires, reactions, comments, photos, hide and admin delete all work.
+// The phone picks the id (post_...) so a photo can be attached right behind it in the same save queue.
+function apiPost_(me, req, ctx) {
+  var text = truncate_(str_(req.text), 1000);
+  if (!text && !isTrue_(req.photo)) throw new Error('Write something first.');
+  var id = str_(req.id);
+  if (!/^post_[A-Za-z0-9_]{6,80}$/.test(id)) id = 'post_' + shortId_();
+  var exists = readTable_(TAB.EVENTS).some(function(e) { return e.event_id === id; });
+  if (exists) return '';
+  appendRows_(TAB.EVENTS, [{ event_id: id, created_at: nowIso_(), type: 'post', participant_id: me.pid, week: '', title: '', body: text }]);
+  return '';
+}
+function apiDeletePost_(me, req, ctx) {
+  var id = str_(req.id), hit = null;
+  readTable_(TAB.EVENTS).forEach(function(e) { if (e.event_id === id && e.type === 'post') hit = e; });
+  if (!hit) return '';
+  if (hit.participant_id !== me.pid && !isAdmin_(me, ctx.settings)) throw new Error('You can only delete your own posts.');
+  hit.deleted = '1';
+  updateRow_(TAB.EVENTS, hit._row, hit);
+  return 'Post deleted.';
 }
 
 // Reactions: fire (the original) plus a few more. Each person can give each kind once per post (tap again to take it back).
@@ -1365,7 +1390,7 @@ function apiReact_(me, req, ctx) {
   if (kind !== 'fire') return '';
   try {
     var own = pushOwnerOf_(ctx, target);
-    if (own && own.pid && own.pid !== me.pid) pushQueue_(own.pid, 'social', 'Fired up', me.name + ' fired up your ' + (own.what === 'wall' ? 'wall' : own.what) + '.');
+    if (own && own.pid && own.pid !== me.pid) pushQueue_(own.pid, 'social', 'Fired up', me.name + ' fired up your ' + (own.what === 'wall' ? 'wall' : own.what === 'workout' ? 'workout' : 'post') + '.');
   } catch (pe) { Logger.log('push fire: ' + pe.message); }
   return '';
 }

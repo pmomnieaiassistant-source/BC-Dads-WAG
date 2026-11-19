@@ -124,7 +124,17 @@ nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:6;background:var(--bg);b
 nav.tabs div{max-width:560px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr)}
 nav.tabs button{border:0;background:transparent;color:var(--dim);height:62px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:11px;font-weight:700}
 nav.tabs button.on{color:var(--lime)}
-.fab{position:fixed;z-index:6;right:max(16px,calc(50% - 264px));bottom:calc(env(safe-area-inset-bottom) + 78px);min-height:52px;padding:0 20px;border-radius:999px;border:0;background:var(--lime);color:var(--bg);font-size:15px;font-weight:800;box-shadow:0 10px 30px rgba(0,0,0,.5);display:flex;align-items:center;gap:8px}
+.fab{position:fixed;z-index:8;right:max(16px,calc(50% - 264px));bottom:calc(env(safe-area-inset-bottom) + 78px);width:58px;height:58px;padding:0;border-radius:999px;border:0;background:var(--lime);color:var(--bg);box-shadow:0 10px 30px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center}
+.fab svg{transition:transform .22s ease}.fabon .fab svg{transform:rotate(45deg)}
+.fabbg{position:fixed;inset:0;z-index:7;background:rgba(8,9,11,.55);opacity:0;pointer-events:none;transition:opacity .2s}
+.fabon .fabbg{opacity:1;pointer-events:auto}
+.fabm{position:fixed;z-index:8;right:max(16px,calc(50% - 264px));bottom:calc(env(safe-area-inset-bottom) + 146px);display:flex;flex-direction:column;align-items:flex-end;gap:10px;pointer-events:none}
+.fabm button{min-height:48px;padding:0 18px 0 14px;border-radius:999px;border:1px solid var(--line2);background:var(--card);color:var(--text);font-size:15px;font-weight:800;display:flex;align-items:center;gap:10px;box-shadow:0 10px 30px rgba(0,0,0,.45);
+  opacity:0;transform:translateY(16px) scale(.96);transition:opacity .18s ease,transform .22s cubic-bezier(.2,.9,.3,1.2)}
+.fabm button svg{color:var(--lime)}
+.fabon .fabm{pointer-events:auto}.fabon .fabm button{opacity:1;transform:none}.fabon .fabm button:nth-child(2){transition-delay:.04s}
+@media (prefers-reduced-motion:reduce){.fab svg,.fabm button,.fabbg{transition:none}}
+.cmp{display:flex;gap:10px;align-items:center}.cmp img{width:84px;height:84px;object-fit:cover;border-radius:12px;display:block}
 .sheet{position:fixed;inset:0;z-index:10;background:var(--bg);display:flex;flex-direction:column;max-width:560px;margin:0 auto}
 .sheet header{padding:calc(env(safe-area-inset-top) + 12px) 12px 12px;display:flex;align-items:center;gap:6px;border-bottom:1px solid #22262C}
 .sheet .body{flex:1;overflow-y:auto;padding:18px 16px 40px;display:flex;flex-direction:column;gap:16px}
@@ -174,7 +184,12 @@ h2.h{font-size:18px}
   <div id="ptr" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5"/></svg></div>
   <main id="view"><div class="empty">Loading...</div></main>
 </div>
-<button class="fab" id="fab" data-a="openLog" style="display:none">+ Log workout</button>
+<div class="fabbg" data-a="fabClose"></div>
+<div class="fabm" id="fabMenu" aria-hidden="true">
+  <button data-a="openPost"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>Post</button>
+  <button data-a="openLog"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 7v10M17.5 7v10M3.5 9.5v5M20.5 9.5v5M6.5 12h11"/></svg>Log workout</button>
+</div>
+<button class="fab" id="fab" data-a="fabMenu" aria-label="New post or workout" aria-expanded="false" style="display:none"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
 <nav class="tabs" id="tabs" style="display:none"><div></div></nav>
 <div id="sheet"></div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -393,7 +408,7 @@ h2.h{font-size:18px}
       '<button class="pill" data-a="toggleC" data-id="' + esc(it.id) + '">' + IC.msg + '<span>' + (n === 0 ? 'Comment' : n + (n === 1 ? ' comment' : ' comments')) + '</span></button>' +
       '<span style="margin-left:auto;display:flex;gap:14px">' +
       (it.canEdit ? '<button class="link" style="color:var(--dim)" data-a="editW" data-id="' + esc(it.id) + '">' + (it.canEdit === 'note' ? (it.note ? 'Edit note' : 'Add note') : 'Edit') + '</button>' : '') +
-      (it.kind === 'w' && it.pid === S.me.pid && (it.photos || []).length < 4 ? '<button class="link" style="color:var(--dim)" data-a="photoPick" data-id="' + esc(it.id) + '">Photo</button>' : '') +
+      ((it.kind === 'w' || it.type === 'post') && it.pid === S.me.pid && (it.photos || []).length < 4 ? '<button class="link" style="color:var(--dim)" data-a="photoPick" data-id="' + esc(it.id) + '">Photo</button>' : '') +
       (it.canDelete ? '<button class="link" style="color:var(--dim)" data-a="delW" data-id="' + esc(it.id) + '">Delete</button>' : '') + '</span></div>';
     if (picking) h += '<div class="rpick" role="group" aria-label="React">' + RK.map(function (k) {
       var on = (R[k] || []).indexOf(S.me.pid) !== -1;
@@ -462,9 +477,17 @@ h2.h{font-size:18px}
     return sheetWrap(person(f.it.pid) + "'s photo", '<img class="phbig" src="' + esc(photoSrc(f.ph, 1600)) + '" alt="">', mine && !f.ph.src ? '<button class="btn ghost" data-a="photoDel" data-id="' + esc(id) + '">Delete photo</button>' : '');
   }
 
+  // A general post: text (with @tags) and/or photos, no workout attached.
+  function postCard(it) {
+    var mine = it.pid === S.me.pid && !it.pending;
+    return '<article class="card col" style="gap:14px" id="p-' + esc(it.id) + '"><div class="row">' + avatar(it.pid) +
+      '<div class="col grow" style="gap:1px">' + nameBtn(it.pid) + '<span class="sub" style="font-size:12px">' + esc(ago(it.ts)) + '</span></div>' +
+      (mine ? '<button class="link" style="color:var(--dim)" data-a="delPost" data-id="' + esc(it.id) + '">Delete</button>' : '') + '</div>' +
+      (it.body ? '<p style="color:var(--soft);white-space:pre-wrap">' + mentionHTML(it.body) + '</p>' : '') + photosHTML(it) + actions(it) + '</article>';
+  }
   function cards(items, swipe) {
     return items.map(function (it) {
-      var c = it.kind === 'w' ? workoutCard(it) : eventCard(it);
+      var c = it.kind === 'w' ? workoutCard(it) : it.type === 'post' ? postCard(it) : eventCard(it);
       if (!swipe) return c;
       var canDel = S.me.admin && !(it.kind === 'e' && /^bet/.test(it.type));
       return '<div class="swp"><div class="swa"><button data-a="hidePost" data-id="' + esc(it.id) + '">Hide</button>' + (canDel ? '<button class="del" data-a="adminDel" data-id="' + esc(it.id) + '">Delete</button>' : '') + '</div><div class="swc">' + c + '</div></div>';
@@ -486,7 +509,7 @@ h2.h{font-size:18px}
     if (ui.filter === 'badges') return h + badgeBoard(true);
     h += myWeekCard();
     var hid = S.me.hidden || [];
-    var items = S.feed.filter(function (it) { return (ui.filter === 'all' || (ui.filter === 'workouts') === (it.kind === 'w')) && hid.indexOf(it.id) === -1; });
+    var items = S.feed.filter(function (it) { return (ui.filter === 'all' || (ui.filter === 'workouts' ? it.kind === 'w' : it.kind === 'e' && it.type !== 'post')) && hid.indexOf(it.id) === -1; });
     var nHid = S.feed.filter(function (it) { return hid.indexOf(it.id) !== -1; }).length;
     if (!items.length) h += '<div class="empty">Nothing here yet. Log a workout to get it started.</div>';
     h += cards(items, true);
@@ -869,6 +892,14 @@ h2.h{font-size:18px}
   function myDayItems(iso) {
     return S.feed.filter(function (f) { return f.kind === 'w' && f.pid === S.me.pid && f.date === iso; });
   }
+  function postSheet() {
+    var P = ui.post || { text: '', photo: '' };
+    return sheetWrap('New post', '<div class="col" style="gap:10px"><label class="lab" for="postText">What\'s up?</label>' +
+      '<textarea class="txt" id="postText" rows="6" maxlength="1000" placeholder="Trash talk, a callout, anything. Type @ to tag someone">' + esc(P.text || '') + '</textarea></div>' +
+      (P.photo ? '<div class="cmp"><img src="' + esc(P.photo) + '" alt=""><button class="link" style="color:var(--dim)" data-a="postPhotoX">Remove photo</button></div>'
+        : '<div><button class="pill" data-a="postPhoto"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="14" rx="3"/><circle cx="12" cy="13" r="3.5"/><path d="M8.5 6l1.5-2h4l1.5 2"/></svg><span>Add photo</span></button></div>'),
+      '<button class="btn" data-a="submitPost">Post to the feed</button>');
+  }
   function showNews() {
     if (ui.newsDone || !S || !S.updates) return;
     ui.newsDone = true;
@@ -1001,10 +1032,11 @@ h2.h{font-size:18px}
     if (!t) { el.innerHTML = ''; return; }
     var keep = document.getElementById('logNote'); if (keep && t.t === 'log') ui.log.note = keep.value;
     var fbk = document.getElementById('fbText'); if (fbk && t.t === 'feedback') ui.fb = fbk.value;
+    var pst = document.getElementById('postText'); if (pst && t.t === 'post' && ui.post) ui.post.text = pst.value;
     if (t.t === 'bet') grabBet();
     var body = document.getElementById('sheetBody');
     var y = body && el.getAttribute('data-key') === sheetKey(t) ? body.scrollTop : 0;
-    el.innerHTML = t.t === 'photo' ? photoSheet(t.id) : t.t === 'news' ? newsSheet() : t.t === 'newsAll' ? newsAllSheet() : t.t === 'feedback' ? feedbackSheet() : t.t === 'log' ? logSheet() : t.t === 'bet' ? betSheet() : t.t === 'betd' ? betDetailSheet(t.id) : t.t === 'week' ? weekSheet(t.week) : t.t === 'profile' ? profileSheet(t.pid) : badgeSheet(t.id, t.pid);
+    el.innerHTML = t.t === 'post' ? postSheet() : t.t === 'photo' ? photoSheet(t.id) : t.t === 'news' ? newsSheet() : t.t === 'newsAll' ? newsAllSheet() : t.t === 'feedback' ? feedbackSheet() : t.t === 'log' ? logSheet() : t.t === 'bet' ? betSheet() : t.t === 'betd' ? betDetailSheet(t.id) : t.t === 'week' ? weekSheet(t.week) : t.t === 'profile' ? profileSheet(t.pid) : badgeSheet(t.id, t.pid);
     el.setAttribute('data-key', sheetKey(t));
     if (y) document.getElementById('sheetBody').scrollTop = y;
   }
@@ -1026,7 +1058,9 @@ h2.h{font-size:18px}
     nav.style.display = 'block';
     nav.firstElementChild.innerHTML = TABS.map(function (t) { return '<button class="' + (ui.tab === t[0] ? 'on' : '') + '" data-a="tab" data-id="' + t[0] + '"' + (ui.tab === t[0] ? ' aria-current="page"' : '') + '>' + t[2] + t[1] + '</button>'; }).join('');
     var open = ui.stack.length > 0;
-    document.getElementById('fab').style.display = !open && (ui.tab === 'feed' || ui.tab === 'tracker') && S.week.current >= 1 ? 'flex' : 'none';
+    var showFab = !open && (ui.tab === 'feed' || ui.tab === 'tracker') && S.week.current >= 1;
+    document.getElementById('fab').style.display = showFab ? 'flex' : 'none';
+    if (!showFab) setFab(false);
     // While a full-screen page is open the tab underneath is not drawn, so there is only ever one copy of each post on the page.
     view.innerHTML = open ? '' : { feed: viewFeed, tracker: viewTracker, bets: viewBets, challenges: viewChallenges, me: viewMe }[ui.tab]();
     renderSheet();
@@ -1035,6 +1069,12 @@ h2.h{font-size:18px}
   // ---------- actions ----------
   function val(id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; }
   function closeAll() { ui.stack = []; }
+  // The + button: tap to raise Post and Log workout, tap again (or anywhere else) to put them away.
+  function setFab(on) {
+    document.body.classList.toggle('fabon', on);
+    var f = document.getElementById('fab'); if (f) f.setAttribute('aria-expanded', on ? 'true' : 'false');
+    var m = document.getElementById('fabMenu'); if (m) m.setAttribute('aria-hidden', on ? 'false' : 'true');
+  }
   var ACT = {
     refresh: function () { refresh(false); },
     syncNow: function () {
@@ -1077,7 +1117,38 @@ h2.h{font-size:18px}
       ui.log = { editId: id, noteOnly: it.canEdit === 'note', date: it.date, type: TYPES.indexOf(it.activity) !== -1 ? it.activity : 'Other', minutes: it.minutes || 30, effort: it.effort || 'Moderate', note: it.note || '' };
       pushSheet({ t: 'log' });
     },
-    openLog: function () { ui.log = freshLog(); pushSheet({ t: 'log' }); },
+    fabMenu: function () { setFab(!document.body.classList.contains('fabon')); },
+    fabClose: function () { setFab(false); },
+    openLog: function () { setFab(false); ui.log = freshLog(); pushSheet({ t: 'log' }); },
+    openPost: function () { setFab(false); ui.post = { text: '', photo: '' }; pushSheet({ t: 'post' }); },
+    postPhoto: function () {
+      var inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.hidden = true;
+      inp.onchange = function () {
+        var file = inp.files && inp.files[0]; inp.remove(); if (!file) return;
+        var pst = document.getElementById('postText'); if (pst && ui.post) ui.post.text = pst.value;
+        shrinkPhoto(file).then(function (data) { if (ui.post) { ui.post.photo = data; renderSheet(); } }).catch(function (e) { toast(e.message, true); });
+      };
+      document.body.appendChild(inp); inp.click();
+    },
+    postPhotoX: function () { var pst = document.getElementById('postText'); if (pst) ui.post.text = pst.value; ui.post.photo = ''; renderSheet(); },
+    submitPost: function () {
+      var text = val('postText'), P = ui.post || {}, photo = P.photo || '';
+      if (!text && !photo) { toast('Write something or add a photo.', true); return; }
+      var saved = { text: text, photo: photo }, now = new Date().toISOString();
+      var id = 'post_' + String(S.me.pid).replace(/[^A-Za-z0-9]/g, '') + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      S.feed.unshift({ id: id, kind: 'e', type: 'post', pid: S.me.pid, ts: now, title: '', body: text, reacts: {}, firedBy: [], fires: 0, fired: false, comments: [], pending: true,
+        photos: photo ? [{ id: 'tmp_ph' + Date.now(), pid: S.me.pid, src: photo }] : [] });
+      queue('post', { id: id, text: text, photo: photo ? '1' : '' }, function () { ui.post = saved; closeAll(); pushSheet({ t: 'post' }); });
+      if (photo) queue('photoAdd', { target: id, data: photo });
+      ui.post = null; closeAll(); ui.tab = 'feed'; ui.filter = 'all'; render(); window.scrollTo(0, 0);
+    },
+    delPost: function (id) {
+      if (!confirm('Delete this post?')) return;
+      S.feed = S.feed.filter(function (x) { return x.id !== id; });
+      for (var k in ui.profiles) ui.profiles[k].items = (ui.profiles[k].items || []).filter(function (x) { return x.id !== id; });
+      render();
+      queue('deletePost', { id: id });
+    },
     closeSheet: function () {
       ui.stack.pop();
       render();
@@ -1250,7 +1321,7 @@ h2.h{font-size:18px}
     box.innerHTML = names.map(function (n) { return '<button type="button" class="pill" data-a="mentionPick" data-id="' + esc(n) + '">@' + esc(n) + '</button>'; }).join('');
     mentionEl = el;
   }
-  document.addEventListener('input', function (e) { var el = e.target; if (el && el.id && (el.id === 'wallInput' || el.id.indexOf('c-') === 0)) mentionBox(el); });
+  document.addEventListener('input', function (e) { var el = e.target; if (el && el.id && (el.id === 'wallInput' || el.id === 'postText' || el.id.indexOf('c-') === 0)) mentionBox(el); });
   // Keep the keyboard up while tapping a name.
   document.addEventListener('mousedown', function (e) { if (e.target.closest && e.target.closest('.msugg')) e.preventDefault(); });
 
@@ -1303,7 +1374,7 @@ h2.h{font-size:18px}
     document.addEventListener('touchstart', function (e) {
       y0 = null; pull = 0;
       if (!KEY || !S || ui.busy || e.touches.length !== 1 || !atTop()) return;
-      var t = top(); if (t && (t.t === 'log' || t.t === 'bet' || t.t === 'feedback')) return;
+      var t = top(); if (t && (t.t === 'log' || t.t === 'bet' || t.t === 'feedback' || t.t === 'post')) return;
       y0 = e.touches[0].clientY;
     }, { passive: true });
     document.addEventListener('touchmove', function (e) {
