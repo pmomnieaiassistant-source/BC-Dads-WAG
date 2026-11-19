@@ -755,10 +755,10 @@ h2.h{font-size:18px}
     if (!bets.length) h += '<p class="sub">No side bets yet. Bet on whether someone gets his workouts in, set an over/under, match two guys (or two teams) head to head, or make up your own.</p>';
     if (open.length) h += '<span class="lab">Open for betting</span>' + open.map(betCard).join('');
     if (wait.length) h += '<span class="lab">Waiting on a result</span>' + wait.map(betCard).join('');
+    // Settled bets stay tucked away behind one link; tap to show them all, tap again to hide.
     if (done.length) {
-      var show = ui.open.betsDone ? done : done.slice(0, 3);
-      h += '<span class="lab">Settled</span>' + show.map(betCard).join('');
-      if (done.length > 3 && !ui.open.betsDone) h += '<button class="link" style="text-align:left" data-a="toggleC" data-id="betsDone">Show ' + (done.length - 3) + ' more</button>';
+      h += '<button class="link" style="text-align:left" data-a="toggleC" data-id="betsDone" aria-expanded="' + !!ui.open.betsDone + '">' + (ui.open.betsDone ? 'Hide Settled Bets' : 'View Settled Bets (' + done.length + ')') + '</button>';
+      if (ui.open.betsDone) h += done.map(betCard).join('');
     }
     return h;
   }
