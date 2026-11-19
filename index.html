@@ -388,7 +388,7 @@ h2.h{font-size:18px}
       var L = R[k] || [], mine = L.indexOf(S.me.pid) !== -1;
       return '<button class="pill rx' + (mine ? ' lime' : '') + '" data-a="react" data-k="' + k + '" data-id="' + esc(it.id) + '" aria-pressed="' + mine + '" aria-label="' + RL[k] + '">' + rIcon(k) + '<span>' + L.length + '</span></button>';
     }
-    h += '<div class="acts" style="margin-top:6px">' + rx('fire') + RK.slice(1).filter(function (k) { return (R[k] || []).length; }).map(rx).join('') +
+    h += '<div class="acts" style="margin-top:6px">' + given.map(rx).join('') +
       '<button class="pill rx' + (picking ? ' on' : '') + '" data-a="rpick" data-id="' + esc(it.id) + '" aria-label="Add a reaction" aria-expanded="' + picking + '">' + IC.react + '</button>' +
       '<button class="pill" data-a="toggleC" data-id="' + esc(it.id) + '">' + IC.msg + '<span>' + (n === 0 ? 'Comment' : n + (n === 1 ? ' comment' : ' comments')) + '</span></button>' +
       '<span style="margin-left:auto;display:flex;gap:14px">' +
