@@ -184,6 +184,8 @@ nav.tabs button.on{color:var(--lime)}
 .tag.u-texting{background:#2A1C0E;color:var(--orange);border-color:#7A4A16}.tag.u-never{background:#261414;color:var(--red);border-color:#261414}
 .amenu>button{display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid #22262C;padding:14px;color:inherit}
 .amenu>button:last-child{border-bottom:0}.amenu svg{flex:none;color:var(--dim)}
+.owe{position:sticky;top:8px;z-index:3;display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:16px;background:#2A1C0E;border:1px solid #7A4A16;color:#F3E2CC;box-shadow:0 8px 20px rgba(0,0,0,.4)}
+.owe b{font-size:16px}.owe .sub{color:#D9BF9D;font-size:13px}
 .link{color:var(--lime);background:none;border:0;padding:0;font-weight:700;font-size:14px}
 .spin{opacity:.5}
 h2.h{font-size:18px}
@@ -472,6 +474,8 @@ h2.h{font-size:18px}
   function findPhoto(id) {
     var all = S.feed.slice(); for (var k in ui.profiles) all = all.concat(ui.profiles[k].items || []);
     for (var i = 0; i < all.length; i++) { var ps = all[i].photos || []; for (var j = 0; j < ps.length; j++) if (ps[j].id === id) return { ph: ps[j], it: all[i] }; }
+    var pots = (S.bank && S.bank.pots) || [];
+    for (var q = 0; q < pots.length; q++) { var pp = pots[q].photos || []; for (var r = 0; r < pp.length; r++) if (pp[r].id === id) return { ph: pp[r], it: { id: pots[q].id, pid: pp[r].pid }, pot: pots[q] }; }
     return null;
   }
   // Shrinks a photo on the phone (longest side 1600 px, JPEG) so uploads stay small and quick.
@@ -519,7 +523,7 @@ h2.h{font-size:18px}
     return '<section class="card row between"><div class="col"><span class="sub">Your week</span><b>' + esc(text) + '</b></div><div class="dots" role="img" aria-label="' + c.count + ' of ' + S.rules.minDays + '">' + dots + '</div></section>';
   }
   function viewFeed() {
-    var h = '';
+    var h = oweCard();
     if (S.me.whoop === 'reconnect') h += '<div class="banner">Your WHOOP got disconnected. Your past workouts are safe. <button class="link" data-a="connect">Reconnect WHOOP</button></div>';
     h += '<div class="row" style="flex-wrap:wrap">' + ['all', 'workouts', 'callouts', 'badges'].map(function (f) { return '<button class="pill' + (ui.filter === f ? ' on' : '') + '" data-a="filter" data-id="' + f + '">' + nice(f) + '</button>'; }).join('') + '</div>';
     if (ui.filter === 'badges') return h + badgeBoard(true);
@@ -580,8 +584,72 @@ h2.h{font-size:18px}
     return h;
   }
 
+  // ---------- deposits (Venmo) ----------
+  function myAcct() { return ((S.bank || {}).accounts || []).filter(function (a) { return a.pid === S.me.pid; })[0] || { balance: 0, owes: 0, pending: 0 }; }
+  function adminName() { return (S.bank && S.bank.adminName) || 'the admin'; }
+  function venmoUser() { return (S.bank && S.bank.venmo) || 'BC-Dads-WAG'; }
+  function venmoLinks(amount, note) {
+    var q = 'txn=pay&amount=' + amount.toFixed(2) + '&note=' + encodeURIComponent(note), u = encodeURIComponent(venmoUser());
+    return { app: 'venmo://paycharge?' + q + '&recipients=' + u, web: 'https://venmo.com/' + u + '?' + q };
+  }
+  // Opens the Venmo app with the account, amount and note filled in; if the app is not there, opens Venmo's website instead.
+  function openVenmo(amount, note) {
+    var L = venmoLinks(amount, note), t = Date.now();
+    location.href = L.app;
+    setTimeout(function () { if (!document.hidden && Date.now() - t < 3000) window.open(L.web, '_blank'); }, 1300);
+  }
+  function depositSheet() {
+    var D = ui.dep || {}, amt = D.amount !== undefined && D.amount !== '' ? D.amount : (D.left || myAcct().owes || '');
+    return sheetWrap('Deposit', '<p class="sub">' + (D.week ? 'For the Week ' + esc(D.week) + ' pot. ' : '') + 'Pay <b>@' + esc(venmoUser()) + '</b> on Venmo, then tap \u201cI\'ve sent it\u201d so ' + esc(adminName()) + ' can confirm it arrived. It counts, and your alert goes away, once that is done.</p>' +
+      '<div class="col" style="gap:10px"><label class="lab" for="depAmt">Amount</label><div class="field"><b class="sub" style="font-size:20px">$</b><input id="depAmt" type="number" inputmode="decimal" min="0" step="0.01" value="' + esc(amt) + '"></div></div>' +
+      '<button class="btn" data-a="depVenmo">Open Venmo</button>' +
+      '<p class="sub" style="font-size:12px">Venmo opens with the amount filled in. If the amount does not carry over, type it in there. <button class="link" style="font-size:12px" data-a="depCopy">Copy @' + esc(venmoUser()) + '</button></p>',
+      '<button class="btn ghost" data-a="depSent">I\'ve sent it</button>');
+  }
+  // A pinned alert at the top of the feed for anyone who owes money (or has a payment waiting to be confirmed).
+  function oweCard() {
+    if (!S.bank || !S.bank.accounts) return '';
+    var a = myAcct();
+    if (!(a.owes > 0) && !(a.pending > 0)) return '';
+    var msg = a.owes > 0 ? '<b>You owe ' + money(a.owes) + '</b>' + (a.pending > 0 ? '<span class="sub">' + money(a.pending) + ' sent, waiting for ' + esc(adminName()) + ' to confirm</span>' : '<span class="sub">Fines and lost bets</span>')
+      : '<b>Payment sent</b><span class="sub">Waiting for ' + esc(adminName()) + ' to confirm your ' + money(a.pending) + '</span>';
+    return '<div class="owe"><div class="col grow" style="gap:1px">' + msg + '</div>' + (a.owes > 0 ? '<button class="pill lime" data-a="deposit" data-amt="' + a.owes + '">Deposit</button>' : '') + '</div>';
+  }
+  function potById(id) { var l = (S.bank && S.bank.pots) || []; for (var i = 0; i < l.length; i++) if (l[i].id === id) return l[i]; return null; }
+  function potLine(p) {
+    var due = p.dues || [];
+    return '<div class="row between"><span class="sub">' + (!due.length ? 'Nobody owed a fine' : p.outstanding > 0 ? '<b class="neg">' + money(p.outstanding) + ' still owed</b> \u00b7 ' + money(p.paid || 0) + ' paid in' : '<b class="pos">All paid in</b>') + '</span><button class="pill" data-a="potOpen" data-id="' + p.week + '">Open pot</button></div>';
+  }
+  // One pot as its own page: who owes and who has paid, photos, and a running chat (including new totals when it is resettled).
+  function potSheet(id) {
+    var p = potById(id); if (!p) return sheetWrap('Pot', '<div class="empty">That pot is gone.</div>', '');
+    p.photos = p.photos || []; p.comments = p.comments || [];
+    var h = '<div class="stats"><div class="stat"><span>Pot total</span><b style="color:var(--gold)">' + money(p.start) + '</b></div><div class="stat"><span>Paid in</span><b class="pos">' + money(p.paid || 0) + '</b></div><div class="stat"><span>Still owed</span><b class="' + (p.outstanding > 0 ? 'neg' : 'pos') + '">' + money(p.outstanding || 0) + '</b></div></div>';
+    h += '<div class="col" style="gap:8px"><span class="lab">Who owes</span>' + ((p.dues || []).length ? '<div class="list">' + p.dues.map(function (d) {
+      return '<div><div class="col grow" style="gap:1px">' + nameBtn(d.pid) + (d.left > 0 && d.paid > 0 ? '<span class="sub" style="font-size:12px">' + money(d.paid) + ' of ' + money(d.amount) + ' paid</span>' : '') + '</div>' +
+        (d.left <= 0 ? '<span class="pos" style="font-weight:800">\u2713 Paid ' + money(d.amount) + '</span>'
+          : '<b class="neg" style="white-space:nowrap">' + money(d.left) + ' owed</b>' +
+            (d.pid === S.me.pid ? '<button class="pill lime" data-a="deposit" data-amt="' + d.left + '" data-w="' + p.week + '">Deposit</button>' : (S.me.admin ? '<button class="pill" data-a="markPaid" data-id="' + esc(d.pid) + '" data-amt="' + d.left + '" data-w="' + p.week + '">Mark paid</button>' : ''))) + '</div>';
+    }).join('') + '</div>' : '<p class="sub">Nobody owed a fine that week.</p>') + '</div>';
+    if (p.settled) h += '<div class="card col" style="gap:6px"><div class="row between"><b>Settled</b><span class="tag">SETTLED</span></div><div class="row"><b class="sub" style="font-size:20px">' + money(p.start) + '</b><span class="sub">\u2192</span><b style="font-size:24px" class="' + (p.end >= p.start ? 'pos' : 'neg') + '">' + money(p.end) + '</b><b style="margin-left:auto">' + money(p.each) + ' each</b></div><p class="sub">' + esc(p.members.map(person).join(', ') || 'Nobody') + ' \u00b7 settled by ' + esc(person(p.by)) + '</p></div>';
+    else if (p.members.length) h += '<div class="card col" style="gap:6px"><div class="row between"><b>' + esc(p.label) + '</b><span class="tag lime">LIVE</span></div><p class="sub">Betting ' + esc(p.betDates) + ' \u00b7 in the pot: ' + esc(p.members.map(person).join(', ')) + '</p></div>';
+    if (S.me.admin && p.members.length) h += '<div class="col" style="gap:10px"><label class="lab" for="pot-' + p.week + '">' + (p.settled ? 'Still rolling? Update the total' : 'What is left after all the betting?') + '</label><div class="field"><b class="sub" style="font-size:20px">$</b><input id="pot-' + p.week + '" type="number" inputmode="decimal" min="0" placeholder="New total"></div><button class="btn" data-a="settle" data-id="' + p.week + '">' + (p.settled ? 'Save new total' : 'Settle all bets') + '</button></div>';
+    h += '<div class="col" style="gap:8px"><div class="row between"><span class="lab">Photos</span><button class="link" style="color:var(--dim)" data-a="photoPick" data-id="' + p.id + '">Add photo</button></div>' + (p.photos.length ? photosHTML(p) : '<p class="sub">Add a photo of the bet, the score, a receipt.</p>') + '</div>';
+    h += '<div class="col" style="gap:10px"><span class="lab">Chat</span><div class="cm" style="border-top:0;padding-top:0">' + (p.comments.length ? p.comments.map(function (c) {
+      return '<div>' + nameBtn(c.pid) + ' <span style="color:var(--mid)">' + mentionHTML(c.text) + '</span><span class="ct">' + (c.pending ? 'sending' : esc(ago(c.ts))) + '</span>' + (c.pid === S.me.pid && !c.pending ? ' <button class="link" style="color:var(--dim);font-size:12px" data-a="potCDel" data-id="' + esc(c.id) + '">Delete</button>' : '') + '</div>';
+    }).join('') : '<p class="sub">Nothing yet. Say who is settling what.</p>') +
+      '<div class="row"><input class="txt" id="c-' + p.id + '" placeholder="Comment, or @ someone" maxlength="500" aria-label="Add a comment"><button class="pill lime" data-a="sendC" data-id="' + p.id + '">Post</button></div></div></div>';
+    return sheetWrap(p.label, h, '');
+  }
+
   function viewBets() {
     var b = S.bank, h = '';
+    var pend = b.pending || [];
+    if (pend.length) h += '<h2 class="h">Waiting to be confirmed</h2><div class="list">' + pend.map(function (x) {
+      return '<div><span class="grow">' + nameBtn(x.pid) + ' <span class="sub">' + money(x.amount) + (x.week ? ' \u00b7 Week ' + esc(x.week) + ' pot' : '') + ' \u00b7 ' + esc(ago(x.ts)) + '</span></span>' +
+        (S.me.admin ? '<button class="pill" data-a="payNo" data-id="' + esc(x.id) + '">Decline</button><button class="pill lime" data-a="payOk" data-id="' + esc(x.id) + '">Confirm</button>'
+          : (x.pid === S.me.pid ? '<button class="pill" data-a="payCancel" data-id="' + esc(x.id) + '">Cancel</button>' : '')) + '</div>';
+    }).join('') + '</div>';
     var me = b.accounts.filter(function (a) { return a.pid === S.me.pid; })[0] || { won: 0, fines: 0, paid: 0, side: 0, balance: 0 };
     function signed(n) { return (n > 0 ? '+' : '') + money(n); }
     if (!b.pots.length) h += '<div class="card"><b>No pots yet</b><p class="sub">A pot shows up here each Monday, funded by the fines from the week that just ended. Tracking starts with week ' + b.startWeek + '.</p></div>';
@@ -590,14 +658,14 @@ h2.h{font-size:18px}
       if (!p.settled) {
         h += '<article class="card col" style="gap:14px;border-color:var(--lime)"><div class="row between"><div class="col" style="gap:1px"><b>' + esc(p.label) + '</b><span class="sub">Betting ' + esc(p.betDates) + '</span></div><span class="tag lime">LIVE</span></div>' +
           '<div class="stats" style="grid-template-columns:1fr 1fr"><div class="stat"><span>Monday start</span><b style="color:var(--gold);font-size:24px">' + money(p.start) + '</b></div><div class="stat"><span>In the pot</span><b style="font-size:24px">' + p.members.length + (p.members.length === 1 ? ' guy' : ' guys') + '</b></div></div>' +
-          '<p class="sub">' + esc(names) + '</p>' +
-          (p.members.length ? '<label class="lab" for="pot-' + p.week + '">What is left after all the betting?</label><div class="field"><b class="sub" style="font-size:20px">$</b><input id="pot-' + p.week + '" type="number" inputmode="decimal" min="0" placeholder="Enter the new total"></div>' +
+          '<p class="sub">' + esc(names) + '</p>' + potLine(p) +
+          (S.me.admin && p.members.length ? '<label class="lab" for="pot-' + p.week + '">What is left after all the betting?</label><div class="field"><b class="sub" style="font-size:20px">$</b><input id="pot-' + p.week + '" type="number" inputmode="decimal" min="0" placeholder="Enter the new total"></div>' +
           '<button class="btn" data-a="settle" data-id="' + p.week + '">Settle all bets</button>' : '') + '</article>';
       } else {
         h += '<article class="card col" style="gap:10px"><div class="row between"><div class="col" style="gap:1px"><b>' + esc(p.label) + '</b><span class="sub">Bet ' + esc(p.betDates) + '</span></div><span class="tag">SETTLED</span></div>' +
-          '<div class="row"><b class="sub" style="font-size:20px">' + money(p.start) + '</b><span class="sub">?</span><b style="font-size:24px" class="' + (p.end >= p.start ? 'pos' : 'neg') + '">' + money(p.end) + '</b><b style="margin-left:auto">' + money(p.each) + ' each</b></div>' +
-          '<p class="sub">' + esc(names) + '   Settled by ' + esc(person(p.by)) + '</p>' +
-          (ui.open['pot' + p.week] ? '<div class="field"><b class="sub" style="font-size:20px">$</b><input id="pot-' + p.week + '" type="number" inputmode="decimal" min="0" placeholder="New total" aria-label="New total"></div><button class="btn" data-a="settle" data-id="' + p.week + '">Save new total</button>'
+          '<div class="row"><b class="sub" style="font-size:20px">' + money(p.start) + '</b><span class="sub">\u2192</span><b style="font-size:24px" class="' + (p.end >= p.start ? 'pos' : 'neg') + '">' + money(p.end) + '</b><b style="margin-left:auto">' + money(p.each) + ' each</b></div>' +
+          '<p class="sub">' + esc(names) + '   Settled by ' + esc(person(p.by)) + '</p>' + potLine(p) +
+          (!S.me.admin ? '' : ui.open['pot' + p.week] ? '<div class="field"><b class="sub" style="font-size:20px">$</b><input id="pot-' + p.week + '" type="number" inputmode="decimal" min="0" placeholder="New total" aria-label="New total"></div><button class="btn" data-a="settle" data-id="' + p.week + '">Save new total</button>'
             : '<button class="link" style="text-align:left" data-a="toggleC" data-id="pot' + p.week + '">Still rolling? Update the total</button>') + '</article>';
       }
     });
@@ -605,15 +673,14 @@ h2.h{font-size:18px}
     var owed = me.balance < 0 ? -me.balance : 0;
     h += '<h2 class="h" style="margin-top:8px">Your account</h2><section class="card col" style="gap:14px"><div class="row between"><b>' + esc(S.me.name) + '</b><b style="font-size:26px" class="' + (me.balance < 0 ? 'neg' : (me.balance > 0 ? 'pos' : '')) + '">' + money(me.balance) + '</b></div>' +
       '<div class="stats" style="grid-template-columns:1fr 1fr"><div class="stat"><span>Pots won</span><b class="pos">' + money(me.won) + '</b></div><div class="stat"><span>Fines</span><b class="neg">' + money(me.fines) + '</b></div><div class="stat"><span>Side bets</span><b class="' + (me.side < 0 ? 'neg' : (me.side > 0 ? 'pos' : '')) + '">' + signed(me.side || 0) + '</b></div><div class="stat"><span>Paid in</span><b>' + money(me.paid) + '</b></div></div>' +
-      (ui.open.pay ? '<label class="lab" for="payAmt">Amount you paid ' + esc(b.bankName) + '</label><div class="field"><b class="sub" style="font-size:20px">$</b><input id="payAmt" type="number" inputmode="decimal" min="0" value="' + (owed || '') + '"></div>' +
-        '<div class="row"><button class="btn ghost" data-a="toggleC" data-id="pay">Cancel</button><button class="btn" data-a="pay">Log payment</button></div>'
-        : '<button class="btn" data-a="toggleC" data-id="pay">Log a payment</button>') +
-      (ui.lastPaid ? '<div class="banner" style="background:#232A12;border-color:#4B5A1C;color:#E4F5B8">The group can see your payment. Now send ' + money(ui.lastPaid) + ' to ' + esc(b.bankName) + ' separately (Venmo, etc.).</div>' : '') + '</section>';
+      '<button class="btn' + (owed > 0 ? '' : ' ghost') + '" data-a="deposit" data-amt="' + owed + '">' + (owed > 0 ? 'Deposit ' + money(owed) : 'Make a deposit') + '</button>' +
+      (me.pending ? '<p class="sub">' + money(me.pending) + ' sent, waiting for ' + esc(adminName()) + ' to confirm.</p>' : '') + '</section>';
 
     h += '<div class="row between" style="margin-top:8px"><h2 class="h">Everyone\'s balance</h2><span class="sub">Pots - fines   side bets + paid</span></div><div class="list">' +
       b.accounts.map(function (a, i) {
         return '<div><span class="sub" style="width:20px">' + (i + 1) + '</span><div class="col grow" style="gap:1px">' + nameBtn(a.pid) + '<span class="sub" style="font-size:12px">Won ' + money(a.won) + '   Fines ' + money(a.fines) + (a.side ? '   Bets ' + signed(a.side) : '') + '   Paid ' + money(a.paid) + '</span></div>' +
-          '<div class="col" style="align-items:flex-end;gap:0"><b class="num ' + (a.balance < 0 ? 'neg' : (a.balance > 0 ? 'pos' : '')) + '" style="font-size:17px">' + money(a.balance) + '</b>' + (a.balance < 0 ? '<span class="neg" style="font-size:11px;font-weight:800">OWES</span>' : '') + '</div></div>';
+          '<div class="col" style="align-items:flex-end;gap:0"><b class="num ' + (a.balance < 0 ? 'neg' : (a.balance > 0 ? 'pos' : '')) + '" style="font-size:17px">' + money(a.balance) + '</b>' + (a.balance < 0 ? '<span class="neg" style="font-size:11px;font-weight:800">OWES</span>' : '') +
+          (a.owes > 0 && a.pid === S.me.pid ? '<button class="pill lime" style="min-height:30px;margin-top:4px" data-a="deposit" data-amt="' + a.owes + '">Deposit</button>' : (a.owes > 0 && S.me.admin ? '<button class="pill" style="min-height:30px;margin-top:4px" data-a="markPaid" data-id="' + esc(a.pid) + '" data-amt="' + a.owes + '">Mark paid</button>' : '')) + '</div></div>';
       }).join('') + '</div>';
 
     h += '<h2 class="h" style="margin-top:8px">In open bets</h2><p class="sub">Money riding on side bets that have not been settled. It is not in anyone\'s balance until the bet pays out.</p>';
@@ -622,7 +689,7 @@ h2.h{font-size:18px}
     }).join('') + '</div>' : '<p class="sub">Nothing riding right now.</p>';
     h += '<h2 class="h" style="margin-top:8px">Bank log</h2>';
     h += b.log.length ? '<div class="list">' + b.log.map(function (l) {
-      var text = l.type === 'sidebet' ? 'Side bet (' + money(l.amount) + ' in play): ' + l.note : l.type === 'payment' ? person(l.pid) + ' logged a ' + money(l.amount) + ' payment' : person(l.pid) + ' settled the Week ' + l.week + ' pot at ' + money(l.amount);
+      var text = l.type === 'sidebet' ? 'Side bet (' + money(l.amount) + ' in play): ' + l.note : l.type === 'payment' ? person(l.pid) + (l.status === 'pending' ? ' sent ' + money(l.amount) + ' (waiting to be confirmed)' : l.status === 'declined' ? ' sent ' + money(l.amount) + ' (not confirmed)' : ' paid ' + money(l.amount)) : person(l.pid) + ' settled the Week ' + l.week + ' pot at ' + money(l.amount);
       return '<div><span class="grow">' + esc(text) + '</span><span class="sub">' + esc(ago(l.ts)) + '</span></div>';
     }).join('') + '</div>' : '<p class="sub">Every settle and payment will be listed here with who did it.</p>';
     return h;
@@ -985,7 +1052,7 @@ h2.h{font-size:18px}
         var hit = S.credits[p.pid] && S.credits[p.pid][iso];
         var cell = cellOf(w, p.pid) || {};
         var off = cell.status === 'exempt';
-        h += '<td' + (off ? ' class="exempt"' : '') + ' title="' + esc(hit ? hit.join(', ') : '') + '">' + (hit ? '<b class="pos">?</b>' : (start + i > today || off ? '' : '<span class="neg">?</span>')) + '</td>';
+        h += '<td' + (off ? ' class="exempt"' : '') + ' title="' + esc(hit ? hit.join(', ') : '') + '">' + (hit ? '<b class="pos">\u2713</b>' : (start + i > today || off ? '' : '<span class="neg">\u2715</span>')) + '</td>';
       });
       h += '</tr>';
     }
@@ -1138,11 +1205,12 @@ h2.h{font-size:18px}
     if (!t) { el.innerHTML = ''; return; }
     var keep = document.getElementById('logNote'); if (keep && t.t === 'log') ui.log.note = keep.value;
     var fbk = document.getElementById('fbText'); if (fbk && t.t === 'feedback') ui.fb = fbk.value;
+    var dpa = document.getElementById('depAmt'); if (dpa && t.t === 'deposit' && ui.dep) ui.dep.amount = dpa.value;
     var pst = document.getElementById('postText'); if (pst && t.t === 'post' && ui.post) ui.post.text = pst.value;
     if (t.t === 'bet') grabBet();
     var body = document.getElementById('sheetBody');
     var y = body && el.getAttribute('data-key') === sheetKey(t) ? body.scrollTop : 0;
-    el.innerHTML = t.t === 'admin' ? adminSheet() : t.t === 'usage' ? usageSheet() : t.t === 'fbInbox' ? feedbackInboxSheet() : t.t === 'betsDone' ? betsDoneSheet() : t.t === 'post' ? postSheet() : t.t === 'photo' ? photoSheet(t.id) : t.t === 'news' ? newsSheet() : t.t === 'newsAll' ? newsAllSheet() : t.t === 'feedback' ? feedbackSheet() : t.t === 'log' ? logSheet() : t.t === 'bet' ? betSheet() : t.t === 'betd' ? betDetailSheet(t.id) : t.t === 'week' ? weekSheet(t.week) : t.t === 'profile' ? profileSheet(t.pid) : badgeSheet(t.id, t.pid);
+    el.innerHTML = t.t === 'pot' ? potSheet(t.id) : t.t === 'deposit' ? depositSheet() : t.t === 'admin' ? adminSheet() : t.t === 'usage' ? usageSheet() : t.t === 'fbInbox' ? feedbackInboxSheet() : t.t === 'betsDone' ? betsDoneSheet() : t.t === 'post' ? postSheet() : t.t === 'photo' ? photoSheet(t.id) : t.t === 'news' ? newsSheet() : t.t === 'newsAll' ? newsAllSheet() : t.t === 'feedback' ? feedbackSheet() : t.t === 'log' ? logSheet() : t.t === 'bet' ? betSheet() : t.t === 'betd' ? betDetailSheet(t.id) : t.t === 'week' ? weekSheet(t.week) : t.t === 'profile' ? profileSheet(t.pid) : badgeSheet(t.id, t.pid);
     el.setAttribute('data-key', sheetKey(t));
     if (y) document.getElementById('sheetBody').scrollTop = y;
   }
@@ -1208,6 +1276,7 @@ h2.h{font-size:18px}
       var t = val('c-' + id); if (!t) return;
       var c = { id: 'tmp_' + Date.now(), pid: S.me.pid, text: t, ts: new Date().toISOString(), pending: true };
       findItem(id).forEach(function (it) { it.comments = (it.comments || []).concat([c]); });
+      var pt = potById(id); if (pt) pt.comments = (pt.comments || []).concat([c]);
       render();
       queue('comment', { target: id, text: t });
     },
@@ -1300,6 +1369,7 @@ h2.h{font-size:18px}
         shrinkPhoto(file).then(function (data) {
           var ph = { id: 'tmp_ph' + Date.now(), pid: S.me.pid, src: data };
           findItem(id).forEach(function (it) { it.photos = (it.photos || []).concat([ph]); });
+          var pt = potById(id); if (pt) pt.photos = (pt.photos || []).concat([ph]);
           render();
           queue('photoAdd', { target: id, data: data });
         }).catch(function (e) { toast(e.message, true); });
@@ -1310,6 +1380,7 @@ h2.h{font-size:18px}
     photoDel: function (id) {
       if (!confirm('Delete this photo?')) return;
       var f = findPhoto(id); if (f) findItem(f.it.id).forEach(function (it) { it.photos = (it.photos || []).filter(function (x) { return x.id !== id; }); });
+      if (f && f.pot) f.pot.photos = (f.pot.photos || []).filter(function (x) { return x.id !== id; });
       ACT.closeSheet();
       queue('photoDelete', { id: id });
     },
@@ -1342,9 +1413,35 @@ h2.h{font-size:18px}
       var v = val('pot-' + id); if (v === '' || isNaN(parseFloat(v))) { toast('Enter the total first.', true); return; }
       api('settle', { week: id, amount: parseFloat(v) }).then(function (j) { if (j) { ui.open['pot' + id] = false; render(); } });
     },
-    pay: function () {
-      var v = parseFloat(val('payAmt')); if (isNaN(v) || v <= 0) { toast('Enter the amount you paid.', true); return; }
-      api('payment', { amount: v }).then(function (j) { if (j) { ui.open.pay = false; ui.lastPaid = v; render(); } });
+    deposit: function (id, el) {
+      ui.dep = { amount: '', week: (el && el.getAttribute('data-w')) || '', left: parseFloat(el && el.getAttribute('data-amt')) || 0 };
+      pushSheet({ t: 'deposit' });
+    },
+    depVenmo: function () {
+      var a = parseFloat(val('depAmt')); if (!(a > 0)) { toast('Enter the amount first.', true); return; }
+      var w = ui.dep && ui.dep.week;
+      openVenmo(a, 'BC Dads WAG' + (w ? ' Week ' + w + ' pot' : ''));
+    },
+    depCopy: function () { var t = '@' + venmoUser(); try { navigator.clipboard.writeText(t).then(function () { toast('Copied ' + t); }, function () { toast(t); }); } catch (e) { toast(t); } },
+    depSent: function () {
+      var a = parseFloat(val('depAmt')); if (!(a > 0)) { toast('Enter the amount first.', true); return; }
+      if (!confirm('Tell ' + adminName() + ' you sent ' + money(a) + '?')) return;
+      var w = ui.dep && ui.dep.week;
+      api('payment', { amount: a, week: w || '' }).then(function (j) { if (j) { ui.dep = null; closeAll(); render(); } });
+    },
+    payOk: function (id) { api('paymentDecide', { id: id, decision: 'confirm' }).then(done); },
+    payNo: function (id) { if (!confirm('Decline this payment? It will not count.')) return; api('paymentDecide', { id: id, decision: 'decline' }).then(done); },
+    payCancel: function (id) { if (!confirm('Cancel this payment?')) return; api('paymentDecide', { id: id, decision: 'cancel' }).then(done); },
+    markPaid: function (id, el) {
+      var amt = parseFloat(el && el.getAttribute('data-amt')) || 0, w = (el && el.getAttribute('data-w')) || '';
+      if (!confirm('Record a ' + money(amt) + ' payment from ' + person(id) + '? It counts right away.')) return;
+      api('payment', { forPid: id, amount: amt, week: w }).then(done);
+    },
+    potOpen: function (id) { pushSheet({ t: 'pot', id: 'pot_' + id }); },
+    potCDel: function (id) {
+      if (!confirm('Delete this comment?')) return;
+      ((S.bank && S.bank.pots) || []).forEach(function (p) { p.comments = (p.comments || []).filter(function (c) { return c.id !== id; }); });
+      render(); queue('deleteComment', { id: id });
     },
     betsDone: function () { pushSheet({ t: 'betsDone' }); },
     admin: function () {

@@ -1,6 +1,7 @@
 // ================================================================
 // BC Dads WAG - v7 backend
-// Version: Nov 19, 2026 - v8.2
+// Version: Nov 22, 2026 - v8.3
+//   - v8.3: payments wait for the admin to confirm; Venmo deposit; pot cards with who owes / paid, photos and chat; only the admin settles pots
 //   - v8.2: notifications back on, sent one by one right away (no bundling); alerts for every reaction and for @tags
 //   - v8.1: admin Usage report (who uses the app, who never has, who went back to texting) and Feedback inbox
 //   - v8.0: last active also counts what people did in the app (comments, reactions, posts, logged workouts)
@@ -22,7 +23,7 @@
 // This ONE file replaces Code.gs, webapp.gs, appsheet_v6_bridge.gs and Index.html.
 // ================================================================
 
-var V7_VERSION = '8.2';
+var V7_VERSION = '8.3';
 var SB_GRACE_MIN = 90;            // side bets: how long after a period ends before a "didn't happen" is paid out (lets late WHOOP data arrive)
 var APP_SYNC_COOLDOWN_MIN = 5;   // the in-app Sync button pulls WHOOP at most this often, for the whole group
 
@@ -50,7 +51,7 @@ var HEAD = {
   Updates: ['update_id', 'date', 'title', 'message', 'hidden_from'],
   Photos: ['photo_id', 'target_id', 'participant_id', 'file_id', 'created_at'],
   Bet_Pots: ['week', 'end_amount', 'members', 'settled_by', 'settled_at'],
-  Bank_Log: ['entry_id', 'created_at', 'type', 'participant_id', 'week', 'amount', 'note'],
+  Bank_Log: ['entry_id', 'created_at', 'type', 'participant_id', 'week', 'amount', 'note', 'status', 'confirmed_by', 'confirmed_at'],
   Challenge_Members: ['challenge', 'participant_id', 'joined_at'],
   Weights: ['participant_id', 'date', 'weight', 'created_at'],
   Run_Log: ['timestamp', 'source_mode', 'records_imported', 'notes'],
@@ -79,7 +80,8 @@ var DEFAULTS = {
   sync_days: '10',
   season_weeks: '20',
   feed_show_all_whoop: 'FALSE',
-  admins: 'Paul'
+  admins: 'Paul',
+  venmo_user: 'BC-Dads-WAG'
 };
 
 
@@ -1148,11 +1150,11 @@ function handleApi_(req) {
     logWorkout: apiLogWorkout_, editWorkout: apiEditWorkout_, deleteWorkout: apiDeleteWorkout_,
     react: apiReact_, comment: apiComment_, deleteComment: apiDeleteComment_,
     settle: apiSettle_, payment: apiPayment_, join: apiJoin_, leave: apiLeave_, weight: apiWeight_,
-    betPropose: apiBetPropose_, betPlace: apiBetPlace_, betResolve: apiBetResolve_, adminDelete: apiAdminDelete_, photoAdd: apiPhotoAdd_, photoDelete: apiPhotoDelete_, post: apiPost_, deletePost: apiDeletePost_
+    betPropose: apiBetPropose_, betPlace: apiBetPlace_, betResolve: apiBetResolve_, paymentDecide: apiPaymentDecide_, adminDelete: apiAdminDelete_, photoAdd: apiPhotoAdd_, photoDelete: apiPhotoDelete_, post: apiPost_, deletePost: apiDeletePost_
   };
   if (action === 'syncNow') return apiSyncNow_(me, profilePid);
   if (!handlers[action]) return { ok: false, error: 'Unknown action: ' + action };
-  var BADGE_ACTIONS = { adminDelete: 1, logWorkout: 1, editWorkout: 1, deleteWorkout: 1, settle: 1, payment: 1, weight: 1, betResolve: 1 };
+  var BADGE_ACTIONS = { paymentDecide: 1, adminDelete: 1, logWorkout: 1, editWorkout: 1, deleteWorkout: 1, settle: 1, payment: 1, weight: 1, betResolve: 1 };
 
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(25000)) return { ok: false, error: 'The tracker is busy for a moment. Try again.' };
@@ -1419,10 +1421,12 @@ function setupPhotos() { Logger.log('Photos are ready. Folder: ' + photoFolder_(
 
 function apiPhotoAdd_(me, req, ctx) {
   var target = truncate_(str_(req.target), 120);
-  var own = pushOwnerOf_(ctx, target);
-  if (!own || (own.what !== 'workout' && own.what !== 'userpost') || own.pid !== me.pid) throw new Error('You can add photos to your own posts and workouts.');
+  var isPot = /^pot_\d{1,3}$/.test(target);   // anyone can add photos to a pot's card
+  var own = isPot ? null : pushOwnerOf_(ctx, target);
+  if (!isPot && (!own || (own.what !== 'workout' && own.what !== 'userpost') || own.pid !== me.pid)) throw new Error('You can add photos to your own posts and workouts.');
+  var max = isPot ? 8 : PHOTO_MAX;
   var have = readTable_(TAB.PHOTOS).filter(function(x) { return x.target_id === target; }).length;
-  if (have >= PHOTO_MAX) throw new Error('That post already has ' + PHOTO_MAX + ' photos.');
+  if (have >= max) throw new Error('That already has ' + max + ' photos.');
   var m = str_(req.data).match(/^data:image\/(jpeg|png);base64,(.+)$/);
   if (!m) throw new Error("That photo couldn't be read.");
   if (m[2].length > 6000000) throw new Error('That photo is too big.');
@@ -1551,6 +1555,7 @@ function apiEditWorkout_(me, req, ctx) {
 }
 
 function apiSettle_(me, req, ctx) {
+  if (!isAdmin_(me, ctx.settings)) throw new Error('Only the admin can settle pots.');
   var week = parseInt(req.week, 10);
   var amount = round2_(num_(req.amount, NaN));
   if (isNaN(week) || week < ctx.bankStartWeek || week >= ctx.currentWeek) throw new Error('That pot is not ready to settle.');
@@ -1575,19 +1580,67 @@ function apiSettle_(me, req, ctx) {
     title: me.name + (existing ? ' updated' : ' settled') + ' the Week ' + week + ' pot',
     body: '$' + w.betTotal + ' pot ended at ' + money_(amount) + ' - ' + money_(each) + ' each for ' + n + (n === 1 ? ' guy.' : ' guys.')
   }]);
+  // The new total also shows as a comment on the pot's card, so people can reply under it.
+  appendRows_(TAB.COMMENTS, [{ comment_id: 'c_' + shortId_(), target_id: 'pot_' + week, participant_id: me.pid, created_at: nowIso_(),
+    text: (existing ? 'Updated the pot total to ' : 'Settled the pot at ') + money_(amount) + ' (' + money_(each) + ' each for ' + n + (n === 1 ? ' guy' : ' guys') + ').' }]);
   return 'Pot settled.';
 }
 
+// A deposit. Someone's own payment waits (status "pending") until the admin confirms it arrived; only then does it count
+// and post to the feed. The admin's own payments, and ones the admin records for someone else (cash), count right away.
 function apiPayment_(me, req, ctx) {
   var amount = round2_(num_(req.amount, NaN));
   if (isNaN(amount) || amount <= 0 || amount > 100000) throw new Error('Enter the amount you paid.');
-  var entryId = 'b_' + shortId_();
-  appendRows_(TAB.BANK, [{ entry_id: entryId, created_at: nowIso_(), type: 'payment', participant_id: me.pid, week: '', amount: String(amount), note: truncate_(str_(req.note), 200) }]);
+  var admin = isAdmin_(me, ctx.settings), payer = me;
+  var forPid = str_(req.forPid);
+  if (forPid && forPid !== me.pid) {
+    if (!admin) throw new Error('Only the admin can record a payment for someone else.');
+    payer = ctx.byPid[forPid];
+    if (!payer) throw new Error('Unknown person.');
+  }
+  var week = /^\d{1,3}$/.test(str_(req.week)) ? str_(req.week) : '';
+  var now = nowIso_(), id = 'b_' + shortId_(), confirmed = admin;
+  appendRows_(TAB.BANK, [{ entry_id: id, created_at: now, type: 'payment', participant_id: payer.pid, week: week, amount: String(amount), note: truncate_(str_(req.note), 200),
+    status: confirmed ? 'confirmed' : 'pending', confirmed_by: confirmed ? me.pid : '', confirmed_at: confirmed ? now : '' }]);
+  if (confirmed) {
+    paymentEvent_(ctx, id, payer, amount, week);
+    return payer.pid === me.pid ? 'Payment recorded.' : 'Recorded ' + money_(amount) + ' from ' + payer.name + '.';
+  }
+  try {
+    pushToPeople_(ctx.people.filter(function(p) { return p.active && isAdmin_(p, ctx.settings); }).map(function(p) { return p.pid; }), 'updates',
+      'Payment to confirm', payer.name + ' says they paid ' + money_(amount) + '. Confirm it in the Ledger.', me.pid);
+  } catch (pe) { Logger.log('push payment: ' + pe.message); }
+  return 'Sent. It counts once the admin confirms it arrived.';
+}
+
+function paymentEvent_(ctx, entryId, payer, amount, week) {
   appendRows_(TAB.EVENTS, [{
-    event_id: 'payment_' + entryId, created_at: nowIso_(), type: 'payment', participant_id: me.pid, week: '',
-    title: me.name + ' logged a ' + money_(amount) + ' payment', body: 'Paid to ' + str_(ctx.settings.bank_name) + '.'
+    event_id: 'payment_' + entryId, created_at: nowIso_(), type: 'payment', participant_id: payer.pid, week: week,
+    title: payer.name + ' paid ' + money_(amount), body: (week ? 'Into the Week ' + week + ' pot.' : 'Paid to ' + str_(ctx.settings.bank_name) + '.')
   }]);
-  return 'Payment logged. Now send ' + money_(amount) + ' to ' + str_(ctx.settings.bank_name) + '.';
+}
+
+// Admin: confirm or decline a pending payment. The person who sent it can cancel their own.
+function apiPaymentDecide_(me, req, ctx) {
+  var id = str_(req.id), decision = str_(req.decision), hit = null;
+  readTable_(TAB.BANK).forEach(function(b) { if (b.entry_id === id && b.type === 'payment') hit = b; });
+  if (!hit || str_(hit.status).toLowerCase() !== 'pending') throw new Error('That payment is not waiting any more.');
+  var payer = ctx.byPid[hit.participant_id], amount = num_(hit.amount, 0), admin = isAdmin_(me, ctx.settings);
+  if (decision === 'cancel') {
+    if (hit.participant_id !== me.pid && !admin) throw new Error('You can only cancel your own payment.');
+    tab_(TAB.BANK).deleteRow(hit._row);
+    return 'Payment cancelled.';
+  }
+  if (!admin) throw new Error('Only the admin can confirm payments.');
+  var ok = decision === 'confirm';
+  hit.status = ok ? 'confirmed' : 'declined'; hit.confirmed_by = me.pid; hit.confirmed_at = nowIso_();
+  updateRow_(TAB.BANK, hit._row, hit);
+  if (ok && payer) paymentEvent_(ctx, id, payer, amount, str_(hit.week));
+  try {
+    if (payer) pushQueue_(payer.pid, 'updates', ok ? 'Payment confirmed' : 'Payment not confirmed',
+      ok ? 'Your ' + money_(amount) + ' payment was confirmed. Thanks!' : 'Your ' + money_(amount) + " payment wasn't confirmed. Check with " + me.name + '.');
+  } catch (pe) { Logger.log('push decide: ' + pe.message); }
+  return ok ? 'Payment confirmed.' : 'Payment declined.';
 }
 
 function apiJoin_(me, req) {
@@ -1635,18 +1688,23 @@ function computeBank_(ctx) {
   var acct = {};
   ctx.people.forEach(function(p) { if (p.active) acct[p.pid] = { pid: p.pid, won: 0, fines: 0, paid: 0, side: 0, open: 0, openCount: 0 }; });
 
-  var pots = [];
+  var pots = [], fineRows = {};
   for (var wk = ctx.currentWeek - 1; wk >= ctx.bankStartWeek; wk--) {
     var w = ctx.matrix[wk - 1];
     if (!w || w.exempt) continue;
-    w.buying.forEach(function(b) { if (acct[b.pid]) acct[b.pid].fines += b.amount; });
+    w.buying.forEach(function(b) {
+      if (!acct[b.pid]) return;
+      acct[b.pid].fines += b.amount;
+      (fineRows[b.pid] = fineRows[b.pid] || []).push({ week: wk, amount: b.amount });
+    });
     if (w.betTotal <= 0) continue;
     var saved = potRows[wk];
     var members = saved && str_(saved.members) ? str_(saved.members).split(',') : w.inMoney.slice();
     var pot = {
       week: wk, label: 'Week ' + wk + ' pot',
       betDates: mdLabel_(addDays_(w.end, 1)) + '-' + mdLabel_(addDays_(w.end, 7)),
-      start: w.betTotal, members: members, settled: !!saved
+      start: w.betTotal, members: members, settled: !!saved, id: 'pot_' + wk,
+      dues: w.buying.filter(function(b) { return acct[b.pid]; }).map(function(b) { return { pid: b.pid, amount: b.amount }; })
     };
     if (saved) {
       pot.end = num_(saved.end_amount, 0);
@@ -1657,12 +1715,17 @@ function computeBank_(ctx) {
     pots.push(pot);
   }
 
-  var log = [];
+  // Payments count once confirmed (older rows with no status count too). Pending ones are listed for the admin to confirm.
+  var log = [], pending = [];
   readTable_(TAB.BANK).forEach(function(b) {
-    var amt = num_(b.amount, 0);
-    if (b.type === 'payment' && acct[b.participant_id]) acct[b.participant_id].paid = round2_(acct[b.participant_id].paid + amt);
-    log.push({ type: b.type, pid: b.participant_id, week: b.week, amount: amt, ts: b.created_at, note: b.note });
+    var amt = num_(b.amount, 0), st = str_(b.status).toLowerCase();
+    if (b.type === 'payment' && acct[b.participant_id]) {
+      if (st === 'pending') pending.push({ id: b.entry_id, pid: b.participant_id, amount: amt, week: str_(b.week), ts: b.created_at });
+      else if (st !== 'declined') acct[b.participant_id].paid = round2_(acct[b.participant_id].paid + amt);
+    }
+    log.push({ type: b.type, pid: b.participant_id, week: b.week, amount: amt, ts: b.created_at, note: b.note, status: st });
   });
+  pending.sort(function(a, b) { return String(a.ts).localeCompare(String(b.ts)); });
   log.sort(function(a, b) { return String(b.ts).localeCompare(String(a.ts)); });
 
   // Side bets: settled ones move the balance; money on bets still open is only listed, not counted.
@@ -1680,12 +1743,35 @@ function computeBank_(ctx) {
   var accounts = Object.keys(acct).map(function(pid) {
     var a = acct[pid];
     a.balance = round2_(a.won - a.fines + a.paid + a.side);
+    a.owes = a.balance < 0 ? round2_(-a.balance) : 0;
+    a.pending = round2_(pending.filter(function(x) { return x.pid === pid; }).reduce(function(t, x) { return t + x.amount; }, 0));
     return a;
+  });
+
+  // Who has paid what into each pot: confirmed payments are applied to a person's fines oldest week first.
+  var alloc = {};
+  accounts.forEach(function(a) {
+    var left = a.paid; alloc[a.pid] = {};
+    (fineRows[a.pid] || []).sort(function(x, y) { return x.week - y.week; }).forEach(function(f) {
+      var take = Math.max(0, Math.min(left, f.amount)); alloc[a.pid][f.week] = round2_(take); left = round2_(left - take);
+    });
+  });
+  var potTalk = {}, potPics = {};
+  readTable_(TAB.COMMENTS).forEach(function(c) { if (str_(c.target_id).indexOf('pot_') === 0) (potTalk[c.target_id] = potTalk[c.target_id] || []).push({ id: c.comment_id, pid: c.participant_id, text: c.text, ts: c.created_at }); });
+  readTable_(TAB.PHOTOS).forEach(function(x) { if (str_(x.target_id).indexOf('pot_') === 0) (potPics[x.target_id] = potPics[x.target_id] || []).push({ id: x.photo_id, fileId: x.file_id, pid: x.participant_id, ts: x.created_at }); });
+  pots.forEach(function(pt) {
+    pt.dues = pt.dues.map(function(d) { var paid = alloc[d.pid] && alloc[d.pid][pt.week] || 0; return { pid: d.pid, amount: d.amount, paid: paid, left: round2_(d.amount - paid) }; });
+    pt.paid = round2_(pt.dues.reduce(function(t, d) { return t + d.paid; }, 0));
+    pt.outstanding = round2_(pt.dues.reduce(function(t, d) { return t + d.left; }, 0));
+    pt.comments = (potTalk[pt.id] || []).sort(function(a, b) { return String(a.ts).localeCompare(String(b.ts)); });
+    pt.photos = (potPics[pt.id] || []).sort(function(a, b) { return String(a.ts).localeCompare(String(b.ts)); });
   });
   var openBets = accounts.filter(function(a) { return a.open > 0; }).map(function(a) { return { pid: a.pid, amount: a.open, count: a.openCount }; })
     .sort(function(a, b) { return b.amount - a.amount; });
   accounts.sort(function(a, b) { return b.balance - a.balance || ctx.byPid[a.pid].name.localeCompare(ctx.byPid[b.pid].name); });
-  return { startWeek: ctx.bankStartWeek, bankName: str_(ctx.settings.bank_name), pots: pots, accounts: accounts, openBets: openBets, log: log.slice(0, 40) };
+  var adm = ctx.people.filter(function(p) { return isAdmin_(p, ctx.settings); })[0];
+  return { startWeek: ctx.bankStartWeek, bankName: str_(ctx.settings.bank_name), venmo: str_(ctx.settings.venmo_user) || 'BC-Dads-WAG', adminName: adm ? adm.name : 'the admin',
+    pots: pots, accounts: accounts, openBets: openBets, pending: pending, log: log.slice(0, 40) };
 }
 
 function computeChallenges_(me, ctx) {
