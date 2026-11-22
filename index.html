@@ -186,6 +186,9 @@ nav.tabs button.on{color:var(--lime)}
 .amenu>button:last-child{border-bottom:0}.amenu svg{flex:none;color:var(--dim)}
 .owe{position:sticky;top:8px;z-index:3;display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:16px;background:#2A1C0E;border:1px solid #7A4A16;color:#F3E2CC;box-shadow:0 8px 20px rgba(0,0,0,.4)}
 .owe b{font-size:16px}.owe .sub{color:#D9BF9D;font-size:13px}
+.zb{display:flex;gap:2px;height:8px;border-radius:999px;overflow:hidden}.zb i{display:block;height:100%;min-width:3px}
+.zb .z1{background:#4A505A}.zb .z2{background:#6F9BC9}.zb .z3{background:var(--lime)}.zb .z4{background:var(--orange)}.zb .z5{background:var(--red)}
+.wdet{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:13px;color:var(--mid)}.wdet b{color:var(--text)}
 .link{color:var(--lime);background:none;border:0;padding:0;font-weight:700;font-size:14px}
 .spin{opacity:.5}
 h2.h{font-size:18px}
@@ -450,15 +453,34 @@ h2.h{font-size:18px}
       '<h3>' + (it.type === 'dormie' ? '<span class="dtag">DORMIE</span>' : '') + title + '</h3><p>' + esc(it.body) + '</p>' +
       '<span class="sub" style="font-size:12px">' + esc(ago(it.ts)) + (it.badgeId ? ' \u00b7 <button class="link" style="font-size:12px" data-a="badge" data-id="' + esc(it.badgeId) + '">See the badge</button>' : '') + (it.betId && betOf(it.betId) ? ' \u00b7 <button class="link" style="font-size:12px" data-a="betOpen" data-id="' + esc(it.betId) + '">Bet details</button>' : '') + '</span>' + actions(it) + '</div></div></article>';
   }
+  // WHOOP details on a card: heart rate, calories, distance, and a bar of time in each heart rate zone.
+  function wDetailHTML(it) {
+    var d = it.detail; if (!d) return '';
+    var bits = [];
+    if (it.source !== 'whoop' && it.effort) bits.push('Effort <b>' + esc(it.effort) + '</b>');
+    if (d.avgHr) bits.push('Avg HR <b>' + d.avgHr + '</b>');
+    if (d.maxHr) bits.push('Max <b>' + d.maxHr + '</b>');
+    if (d.kcal) bits.push('<b>' + d.kcal + '</b> cal');
+    if (d.miles) bits.push('<b>' + d.miles + '</b> mi');
+    var z = d.zones || [], tot = 0, i; for (i = 1; i <= 5; i++) tot += z[i] || 0;
+    var bar = '', key = '';
+    if (tot > 0) {
+      for (i = 1; i <= 5; i++) if ((z[i] || 0) > 0) { bar += '<i class="z' + i + '" style="flex:' + z[i] + '"></i>'; if (z[i] >= 1) key += (key ? ' \u00b7 ' : '') + 'Z' + i + ' ' + Math.round(z[i]) + 'm'; }
+    }
+    return (bits.length ? '<div class="wdet">' + bits.map(function (x) { return '<span>' + x + '</span>'; }).join('') + '</div>' : '') +
+      (bar ? '<div class="col" style="gap:5px"><div class="zb" role="img" aria-label="Time in heart rate zones">' + bar + '</div><span class="sub" style="font-size:12px">' + key + '</span></div>' : '');
+  }
   function workoutCard(it) {
-    var badge = it.source === 'whoop' ? '<span class="tag">WHOOP</span>' : (it.source === 'sms' ? '<span class="tag">TEXT</span>' : '<span class="tag lime">LOGGED</span>');
-    var second = it.source === 'whoop' ? ['Strain', it.strain === null ? '--' : it.strain.toFixed(1)] : ['Effort', it.effort || '--'];
+    var merged = it.source !== 'whoop' && it.source !== 'sms' && !!it.detail;
+    var badge = it.source === 'whoop' ? '<span class="tag">WHOOP</span>' : (it.source === 'sms' ? '<span class="tag">TEXT</span>' : '<span class="tag lime">LOGGED</span>') + (merged ? '<span class="tag">WHOOP</span>' : '');
+    var second = it.source === 'whoop' || (it.strain !== null && it.strain !== undefined) ? ['Strain', it.strain === null || it.strain === undefined ? '--' : it.strain.toFixed(1)] : ['Effort', it.effort || '--'];
     return '<article class="card col" style="gap:14px" id="p-' + esc(it.id) + '"><div class="row">' + avatar(it.pid) +
-      '<div class="col grow" style="gap:1px">' + nameBtn(it.pid) + '<span class="sub" style="font-size:12px">' + esc(nice(it.activity || 'Workout')) + '   ' + esc(ago(it.ts)) + (it.editedAt ? '   edited ' + esc(ago(it.editedAt)) : '') + '</span></div>' + badge + '</div>' +
+      '<div class="col grow" style="gap:1px">' + nameBtn(it.pid) + '<span class="sub" style="font-size:12px">' + esc(nice(it.activity || 'Workout')) + '   ' + esc(ago(it.ts)) + (it.editedAt ? '   edited ' + esc(ago(it.editedAt)) : '') + '</span></div><div class="row" style="gap:6px;flex:none">' + badge + '</div></div>' +
       (it.minutes === null ? '<p style="color:var(--soft)">' + (it.source === 'sms' ? 'Texted in a workout.' : 'Logged a workout.') + ' Week: ' + weekCount(it.pid) + '/' + S.rules.minDays + '</p>' :
       '<div class="stats"><div class="stat"><span>Time</span><b>' + it.minutes + 'm</b></div>' +
       '<div class="stat"><span>' + second[0] + '</span><b style="color:var(--lime)">' + esc(second[1]) + '</b></div>' +
       '<div class="stat"><span>Week</span><b>' + weekCount(it.pid) + '/' + S.rules.minDays + '</b></div></div>') +
+      wDetailHTML(it) +
       (it.note ? '<p style="color:var(--soft)">' + esc(it.note) + '</p>' : '') + photosHTML(it) +
       (!it.ok ? '<p class="sub">Does not count toward the week (under ' + S.rules.minTime + ' min' + (it.source === 'whoop' ? ' or strain ' + S.rules.minEffort : '') + ').</p>' : '') +
       actions(it) + '</article>';

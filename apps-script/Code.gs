@@ -1,6 +1,7 @@
 // ================================================================
 // BC Dads WAG - v7 backend
-// Version: Nov 22, 2026 - v8.3
+// Version: Nov 22, 2026 - v8.4
+//   - v8.4: a logged workout and the WHOOP workout for the same day merge into one card (WHOOP strain, heart rate, zones, calories)
 //   - v8.3: payments wait for the admin to confirm; Venmo deposit; pot cards with who owes / paid, photos and chat; only the admin settles pots
 //   - v8.2: notifications back on, sent one by one right away (no bundling); alerts for every reaction and for @tags
 //   - v8.1: admin Usage report (who uses the app, who never has, who went back to texting) and Feedback inbox
@@ -23,7 +24,7 @@
 // This ONE file replaces Code.gs, webapp.gs, appsheet_v6_bridge.gs and Index.html.
 // ================================================================
 
-var V7_VERSION = '8.3';
+var V7_VERSION = '8.4';
 var SB_GRACE_MIN = 90;            // side bets: how long after a period ends before a "didn't happen" is paid out (lets late WHOOP data arrive)
 var APP_SYNC_COOLDOWN_MIN = 5;   // the in-app Sync button pulls WHOOP at most this often, for the whole group
 
@@ -43,7 +44,8 @@ var TAB = {
 
 var HEAD = {
   Workouts: ['workout_id', 'participant_id', 'workout_date', 'workout_start', 'workout_end',
-             'duration_minutes', 'strain', 'source', 'activity', 'effort', 'note', 'created_at', 'status', 'edited_at'],
+             'duration_minutes', 'strain', 'source', 'activity', 'effort', 'note', 'created_at', 'status', 'edited_at',
+             'avg_hr', 'max_hr', 'kilojoules', 'distance_m', 'zones', 'link_to'],
   Cycles: ['cycle_key', 'participant_id', 'cycle_date', 'strain', 'updated_at'],
   Feed_Events: ['event_id', 'created_at', 'type', 'participant_id', 'week', 'title', 'body', 'deleted'],
   Comments: ['comment_id', 'target_id', 'participant_id', 'text', 'created_at'],
@@ -850,17 +852,26 @@ function syncWhoop_(ctx, fullForAll) {
       if (w.score_state === 'SCORED' && w.score && w.score.strain !== undefined && w.score.strain !== null) {
         strain = String(Math.round(w.score.strain * 100) / 100);
       }
+      // Heart rate, calories, distance and time in each heart rate zone (zone minutes: zone 0 through 5).
+      var sc = (w.score_state === 'SCORED' && w.score) ? w.score : {}, zd = sc.zone_durations || {};
+      function numStr(v, d) { return v === undefined || v === null || v === '' || isNaN(Number(v)) ? '' : String(Math.round(Number(v) * d) / d); }
+      var zonesStr = ['zone_zero_milli', 'zone_one_milli', 'zone_two_milli', 'zone_three_milli', 'zone_four_milli', 'zone_five_milli']
+        .map(function(k) { return numStr(zd[k] === undefined || zd[k] === null ? '' : zd[k] / 60000, 10); }).join(',');
+      if (zonesStr === ',,,,,') zonesStr = '';
       var row = {
         workout_id: id, participant_id: p.pid, workout_date: date,
         workout_start: w.start, workout_end: w.end || '', duration_minutes: dur, strain: strain,
         source: 'whoop', activity: str_(w.sport_name || 'workout'), effort: '', note: '',
-        created_at: w.end || w.start, status: 'active'
+        created_at: w.end || w.start, status: 'active',
+        avg_hr: numStr(sc.average_heart_rate, 1), max_hr: numStr(sc.max_heart_rate, 1), kilojoules: numStr(sc.kilojoule, 10),
+        distance_m: numStr(sc.distance_meter, 1), zones: zonesStr
       };
       var old = existing[id];
       if (!old) {
         addW.push(row); existing[id] = row; added++;
       } else if (old._row && str_(old.status).toLowerCase() !== 'deleted' &&
-                 (str_(old.strain) !== strain || str_(old.duration_minutes) !== dur || isoOf_(old.workout_date, ctx.tz) !== date)) {
+                 (str_(old.strain) !== strain || str_(old.duration_minutes) !== dur || isoOf_(old.workout_date, ctx.tz) !== date ||
+                  str_(old.avg_hr) !== row.avg_hr || str_(old.zones) !== row.zones || str_(old.kilojoules) !== row.kilojoules)) {
         row.note = old.note || ''; row.edited_at = old.edited_at || ''; row.created_at = old.created_at || row.created_at;
         updateRow_(TAB.WORKOUTS, old._row, row);
         changed++;
@@ -1853,19 +1864,66 @@ function feedTime_(w, tz) {
   return w._date + 'T17:00:00.000Z';
 }
 
+// The WHOOP numbers shown on a card: heart rate, calories, distance, and minutes in each heart rate zone.
+function whoopDetail_(w) {
+  var z = str_(w.zones) ? str_(w.zones).split(',').map(function(x) { return x === '' ? 0 : num_(x, 0); }) : [];
+  var avg = num_(w.avg_hr, 0), max = num_(w.max_hr, 0), kj = num_(w.kilojoules, 0), dist = num_(w.distance_m, 0);
+  if (!avg && !max && !kj && !dist && !z.length) return null;
+  return { avgHr: Math.round(avg) || 0, maxHr: Math.round(max) || 0, kcal: Math.round(kj / 4.184) || 0,
+           miles: dist ? Math.round(dist / 1609.344 * 100) / 100 : 0, zones: z, sport: str_(w.activity), minutes: w.duration_minutes === '' ? null : Math.round(num_(w.duration_minutes, 0)) };
+}
+
 // Builds feed items. onlyPid = one person's posts (for profiles); limit = how many to return.
 function feedItems_(me, ctx, onlyPid, limit) {
   var showAll = isTrue_(ctx.settings.feed_show_all_whoop);
 
-  // One WHOOP post "owns" each person+day (the highest-strain one that counts).
-  // A manual, app or text log for that same day is hidden and its comments and fires move to the WHOOP post.
+  // Matching: a workout logged in the app and a WHOOP workout from the same person on the same day (similar length) are
+  // the same session, so they merge into ONE card: the logged workout (its note, effort, photos) plus the WHOOP numbers
+  // (strain, heart rate, zones, calories). Merging never changes what counts toward the week: that is worked out from
+  // each workout on its own, so a logged workout still counts even if the WHOOP session was under the strain minimum.
+  // Override in the Sheet: put a WHOOP workout id (or "none" to never merge) in the logged workout's link_to column.
+  var whoopBy = {}, loggedBy = {};
+  ctx.workouts.forEach(function(w) {
+    if (!w._date) return;
+    var k = w.participant_id + '|' + w._date, sr = str_(w.source).toLowerCase();
+    if (sr === 'whoop') (whoopBy[k] = whoopBy[k] || []).push(w);
+    else if (sr !== 'sms') (loggedBy[k] = loggedBy[k] || []).push(w);
+  });
+  var mergedInto = {}, withWhoop = {};
+  Object.keys(loggedBy).forEach(function(k) {
+    // Every logged/WHOOP pairing for the day, scored by how close the lengths are; the closest pairs are matched first.
+    var pairs = [];
+    loggedBy[k].forEach(function(lw) {
+      var want = str_(lw.link_to);
+      if (want === 'none') return;
+      var ld = parseFloat(lw.duration_minutes);
+      (whoopBy[k] || []).forEach(function(ww) {
+        var cost;
+        if (want) { if (ww.workout_id !== want) return; cost = -1; }
+        else {
+          var wd = parseFloat(ww.duration_minutes);
+          if (!isNaN(ld) && !isNaN(wd)) { if (Math.min(ld, wd) / Math.max(ld, wd) < 0.4) return; cost = Math.abs(ld - wd); }
+          else cost = 1000 - num_(ww.strain, 0);   // no length to compare: prefer the biggest session
+        }
+        pairs.push({ lw: lw, ww: ww, cost: cost });
+      });
+    });
+    pairs.sort(function(a, b) { return a.cost - b.cost || String(a.lw.created_at).localeCompare(String(b.lw.created_at)); });
+    pairs.forEach(function(pr) {
+      if (withWhoop[pr.lw.workout_id] || mergedInto[pr.ww.workout_id]) return;
+      mergedInto[pr.ww.workout_id] = pr.lw; withWhoop[pr.lw.workout_id] = pr.ww;
+    });
+  });
+
+  // Texted entries stay as before: hidden when a WHOOP post (or another counted log) covers the same day.
+  // The WHOOP post "owns" the day: the highest-strain unmerged one that counts.
   var primary = {}, hasReal = {};
   ctx.workouts.forEach(function(w) {
     if (!w._date || !w._ok) return;
     var key = w.participant_id + '|' + w._date;
     var src = str_(w.source).toLowerCase();
     if (src !== 'sms') hasReal[key] = true;
-    if (src === 'whoop' && (!primary[key] || num_(w.strain, 0) > num_(primary[key].strain, 0))) primary[key] = w;
+    if (src === 'whoop' && !mergedInto[w.workout_id] && (!primary[key] || num_(w.strain, 0) > num_(primary[key].strain, 0))) primary[key] = w;
   });
 
   var alias = {};
@@ -1876,16 +1934,19 @@ function feedItems_(me, ctx, onlyPid, limit) {
     if (onlyPid && w.participant_id !== onlyPid) return;
     var src = str_(w.source).toLowerCase();
     var key = w.participant_id + '|' + w._date;
-    if (src !== 'whoop' && primary[key]) { alias[w.workout_id] = primary[key].workout_id; return; }
+    if (src === 'whoop' && mergedInto[w.workout_id]) { alias[w.workout_id] = mergedInto[w.workout_id].workout_id; return; }   // shown on the logged workout's card
+    if (src === 'sms' && primary[key]) { alias[w.workout_id] = primary[key].workout_id; return; }
     if (src === 'whoop' && !w._ok && !showAll) return;
     if (src === 'sms' && hasReal[key]) return;
     var mineThisWeek = w.participant_id === me.pid && weekOf_(w._date, ctx.startIso) === ctx.currentWeek;
+    var ww = withWhoop[w.workout_id], detailRow = src === 'whoop' ? w : ww;
     items.push({
-      id: w.workout_id, kind: 'w', pid: w.participant_id, ts: feedTime_(w, ctx.tz),
+      id: w.workout_id, kind: 'w', pid: w.participant_id, ts: feedTime_(ww || w, ctx.tz),
       date: w._date, source: src, activity: str_(w.activity),
       minutes: w.duration_minutes === '' ? null : Math.round(num_(w.duration_minutes, 0)),
-      strain: w.strain === '' ? null : num_(w.strain, null),
+      strain: ww ? (ww.strain === '' ? null : num_(ww.strain, null)) : (w.strain === '' ? null : num_(w.strain, null)),
       effort: str_(w.effort), note: str_(w.note), ok: !!w._ok, editedAt: str_(w.edited_at),
+      detail: detailRow ? whoopDetail_(detailRow) : null,
       canDelete: src === 'app' && mineThisWeek,
       canEdit: mineThisWeek ? (src === 'app' ? 'full' : (src === 'whoop' ? 'note' : '')) : ''
     });
