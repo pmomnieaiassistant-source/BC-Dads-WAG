@@ -96,7 +96,7 @@ button.sd{border-color:var(--lime)}
 .ct{font-size:12px;color:var(--dim);margin-left:6px;white-space:nowrap}
 .field{display:flex;align-items:center;gap:8px;background:var(--bg);border:1px solid var(--line2);border-radius:14px;padding:0 14px;min-height:50px}
 .field input{flex:1;min-width:0;border:0;background:transparent;font-size:18px;font-weight:700;outline:none}
-input.txt,textarea.txt{width:100%;min-height:44px;border-radius:14px;border:1px solid var(--line2);background:var(--bg);padding:10px 14px;font-size:16px;outline:none}
+input.txt,textarea.txt,select.txt{width:100%;color:var(--text,#fff);min-height:44px;border-radius:14px;border:1px solid var(--line2);background:var(--bg);padding:10px 14px;font-size:16px;outline:none}
 .dots{display:flex;gap:5px}.dot{width:13px;height:13px;border-radius:999px;border:2px solid #4A505A}.dot.f{background:var(--lime);border-color:var(--lime)}
 .st{font-size:11px;font-weight:800;letter-spacing:.5px;padding:3px 8px;border-radius:6px}
 .list .st{width:84px;text-align:center;flex:none;white-space:nowrap}.list .dots{flex:none}
@@ -442,7 +442,24 @@ h2.h{font-size:18px}
     }
     return h;
   }
+  function chalById(id) { var r = null; (S.chals || []).forEach(function (c) { if (c.id === id) r = c; }); return r; }
+  function cdate(iso) { var d = new Date(iso + 'T12:00:00'); return isNaN(d) ? iso : d.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' }); }
   function eventCard(it) {
+    if (it.type === 'chalq') {
+      var mine = it.mine;
+      return '<article class="col" style="gap:8px" id="p-' + esc(it.id) + '"><div class="ev bet" style="border-color:var(--lime)"><span class="ic">' + IC.flag + '</span><div class="col grow" style="gap:8px"><h3>' + esc(it.title) + '</h3><p>' + esc(it.body) + '</p>' +
+        '<p class="sub">Did you keep to it this week? A miss costs ' + money(it.fine) + '. Answer by ' + esc(cdate(it.by)) + ' or it counts as a miss.</p>' +
+        '<div class="row" style="gap:8px"><button class="pill' + (mine === 'yes' ? ' lime' : '') + '" data-a="chalAns" data-id="' + esc(it.chalId) + '" data-w="' + it.week + '" data-v="yes" aria-pressed="' + (mine === 'yes') + '">Yes, I did</button>' +
+        '<button class="pill' + (mine === 'no' ? ' lime' : '') + '" data-a="chalAns" data-id="' + esc(it.chalId) + '" data-w="' + it.week + '" data-v="no" aria-pressed="' + (mine === 'no') + '">No, I missed</button></div>' +
+        (mine ? '<span class="sub">You answered ' + mine + '. You can change it until it settles.</span>' : '') +
+        '<span class="sub" style="font-size:12px">' + esc(ago(it.ts)) + ' \u00b7 <button class="link" style="font-size:12px" data-a="chalOpen" data-id="' + esc(it.chalId) + '">See the challenge</button></span>' + actions(it) + '</div></div></article>';
+    }
+    if (it.type === 'customchal') {
+      var cc = chalById(it.chalId);
+      if (cc) return '<article class="col" style="gap:8px" id="p-' + esc(it.id) + '"><div class="ev bet"><span class="ic">' + IC.flag + '</span><div class="col grow" style="gap:6px"><h3>' + esc(it.title) + '</h3><p>' + esc(cc.rules) + '</p>' +
+        '<span class="openline">' + cc.weeks + (cc.weeks === 1 ? ' week' : ' weeks') + ' \u00b7 ' + money(cc.fine) + ' per miss \u00b7 starts ' + esc(cdate(cc.start)) + ' \u00b7 ' + cc.members.length + ' in' + (cc.status === 'done' ? ' \u00b7 finished' : '') + '</span>' +
+        '<div class="row" style="gap:8px">' + (cc.status === 'enrolling' && !cc.joined ? '<button class="pill lime" data-a="chalJoin" data-id="' + esc(cc.id) + '">Join</button>' : '') + '<button class="pill" data-a="chalOpen" data-id="' + esc(cc.id) + '">Open</button></div><span class="sub" style="font-size:12px">' + esc(ago(it.ts)) + '</span>' + actions(it) + '</div></div></article>';
+    }
     if (it.type === 'custompot') {
       var cp = potById(it.potId);
       if (cp) return '<article class="col" style="gap:8px" id="p-' + esc(it.id) + '"><div class="ev bet"><span class="ic">' + IC.coin + '</span><div class="col grow" style="gap:6px"><h3>' + esc(it.title) + '</h3>' + (cp.description ? '<p>' + esc(cp.description) + '</p>' : '') +
@@ -453,7 +470,7 @@ h2.h{font-size:18px}
       var bt = betOf(it.betId);
       if (bt) return '<article class="col" style="gap:8px" id="p-' + esc(it.id) + '"><div class="ev bet tap" data-a="betOpen" data-id="' + esc(bt.id) + '"><span class="ic">' + IC.coin + '</span><div class="col grow" style="gap:8px">' + betInner(bt) + actions(it) + '</div></div></article>';
     }
-    var icon = { bet: IC.coin, bet_result: IC.coin, bet_off: IC.coin, inmoney: IC.trophy, buying: IC.coin, dormie: IC.flag, nudge: IC.clock, recap: IC.trophy, settle: IC.coin, payment: IC.coin, wall: IC.msg, badge_gain: IC.medal, badge_loss: IC.medal }[it.type] || IC.clock;
+    var icon = { bet: IC.coin, bet_result: IC.coin, bet_off: IC.coin, inmoney: IC.trophy, buying: IC.coin, dormie: IC.flag, nudge: IC.clock, recap: IC.trophy, chalres: IC.trophy, settle: IC.coin, payment: IC.coin, wall: IC.msg, badge_gain: IC.medal, badge_loss: IC.medal }[it.type] || IC.clock;
     var title = it.pid ? '<button class="nm" style="font-weight:800" data-a="profile" data-id="' + esc(it.type === 'wall' && it.toPid ? it.toPid : it.pid) + '">' + esc(it.title) + '</button>' : esc(it.title);
     return '<article class="col" style="gap:8px" id="p-' + esc(it.id) + '"><div class="ev ' + esc(it.type) + '"><span class="ic">' + icon + '</span><div class="col grow">' +
       '<h3>' + (it.type === 'dormie' ? '<span class="dtag">DORMIE</span>' : '') + title + '</h3><p>' + esc(it.body) + '</p>' +
@@ -705,7 +722,7 @@ h2.h{font-size:18px}
         (S.me.admin ? '<button class="pill" data-a="payNo" data-id="' + esc(x.id) + '">Decline</button><button class="pill lime" data-a="payOk" data-id="' + esc(x.id) + '">Confirm</button>'
           : (x.pid === S.me.pid ? '<button class="pill" data-a="payCancel" data-id="' + esc(x.id) + '">Cancel</button>' : '')) + '</div>';
     }).join('') + '</div>';
-    var me = b.accounts.filter(function (a) { return a.pid === S.me.pid; })[0] || { won: 0, fines: 0, paid: 0, side: 0, balance: 0 };
+    var me = b.accounts.filter(function (a) { return a.pid === S.me.pid; })[0] || { won: 0, fines: 0, paid: 0, side: 0, balance: 0, cwon: 0, cfines: 0 };
     function signed(n) { return (n > 0 ? '+' : '') + money(n); }
     if (!b.pots.length) h += '<div class="card"><b>No pots yet</b><p class="sub">A pot shows up here each Monday, funded by the fines from the week that just ended. Tracking starts with week ' + b.startWeek + '.</p></div>';
     b.pots.forEach(function (p) {
@@ -734,13 +751,13 @@ h2.h{font-size:18px}
     });
     var owed = me.balance < 0 ? -me.balance : 0;
     h += '<h2 class="h" style="margin-top:8px">Your account</h2><section class="card col" style="gap:14px"><div class="row between"><b>' + esc(S.me.name) + '</b><b style="font-size:26px" class="' + (me.balance < 0 ? 'neg' : (me.balance > 0 ? 'pos' : '')) + '">' + money(me.balance) + '</b></div>' +
-      '<div class="stats" style="grid-template-columns:1fr 1fr"><div class="stat"><span>Pots won</span><b class="pos">' + money(me.won) + '</b></div><div class="stat"><span>Fines</span><b class="neg">' + money(me.fines) + '</b></div>' + (me.entries ? '<div class="stat"><span>Pot entries</span><b class="neg">' + money(me.entries) + '</b></div>' : '') + '<div class="stat"><span>Side bets</span><b class="' + (me.side < 0 ? 'neg' : (me.side > 0 ? 'pos' : '')) + '">' + signed(me.side || 0) + '</b></div><div class="stat"><span>Paid in</span><b>' + money(me.paid) + '</b></div></div>' +
+      '<div class="stats" style="grid-template-columns:1fr 1fr"><div class="stat"><span>Pots won</span><b class="pos">' + money(me.won) + '</b></div><div class="stat"><span>Fines</span><b class="neg">' + money(me.fines) + '</b></div>' + (me.entries ? '<div class="stat"><span>Pot entries</span><b class="neg">' + money(me.entries) + '</b></div>' : '') + ((me.cwon || me.cfines) ? '<div class="stat"><span>Challenges</span><b class="' + ((me.cwon - me.cfines) < 0 ? 'neg' : 'pos') + '">' + signed(Math.round((me.cwon - me.cfines) * 100) / 100) + '</b></div>' : '') + '<div class="stat"><span>Side bets</span><b class="' + (me.side < 0 ? 'neg' : (me.side > 0 ? 'pos' : '')) + '">' + signed(me.side || 0) + '</b></div><div class="stat"><span>Paid in</span><b>' + money(me.paid) + '</b></div></div>' +
       '<button class="btn' + (owed > 0 ? '' : ' ghost') + '" data-a="deposit" data-amt="' + owed + '">' + (owed > 0 ? 'Deposit ' + money(owed) : 'Make a deposit') + '</button>' +
       (me.pending ? '<p class="sub">' + money(me.pending) + ' sent, waiting for ' + esc(adminName()) + ' to confirm.</p>' : '') + '</section>';
 
     h += '<div class="row between" style="margin-top:8px"><h2 class="h">Everyone\'s balance</h2><span class="sub">Pots - fines   side bets + paid</span></div><div class="list">' +
       b.accounts.map(function (a, i) {
-        return '<div><span class="sub" style="width:20px">' + (i + 1) + '</span><div class="col grow" style="gap:1px">' + nameBtn(a.pid) + '<span class="sub" style="font-size:12px">Won ' + money(a.won) + '   Fines ' + money(a.fines) + (a.entries ? '   Entries ' + money(a.entries) : '') + (a.side ? '   Bets ' + signed(a.side) : '') + '   Paid ' + money(a.paid) + '</span></div>' +
+        return '<div><span class="sub" style="width:20px">' + (i + 1) + '</span><div class="col grow" style="gap:1px">' + nameBtn(a.pid) + '<span class="sub" style="font-size:12px">Won ' + money(a.won) + '   Fines ' + money(a.fines) + (a.entries ? '   Entries ' + money(a.entries) : '') + ((a.cwon || a.cfines) ? '   Challenges ' + signed(Math.round((a.cwon - a.cfines) * 100) / 100) : '') + (a.side ? '   Bets ' + signed(a.side) : '') + '   Paid ' + money(a.paid) + '</span></div>' +
           '<div class="col" style="align-items:flex-end;gap:0"><b class="num ' + (a.balance < 0 ? 'neg' : (a.balance > 0 ? 'pos' : '')) + '" style="font-size:17px">' + money(a.balance) + '</b>' + (a.balance < 0 ? '<span class="neg" style="font-size:11px;font-weight:800">OWES</span>' : '') +
           (a.owes > 0 && a.pid === S.me.pid ? '<button class="pill lime" style="min-height:30px;margin-top:4px" data-a="deposit" data-amt="' + a.owes + '">Deposit</button>' : (a.owes > 0 && S.me.admin ? '<button class="pill" style="min-height:30px;margin-top:4px" data-a="markPaid" data-id="' + esc(a.pid) + '" data-amt="' + a.owes + '">Mark paid</button>' : '')) + '</div></div>';
       }).join('') + '</div>';
@@ -1080,7 +1097,56 @@ h2.h{font-size:18px}
     }
     h += board(c.weight.board, function (r) { return (r.pct > 0 ? '+' : '') + r.pct.toFixed(1) + '%'; }, 'No weigh-ins yet.');
     h += '</section>';
+    return h + customChalSection();
+  }
+
+  // ---------- custom challenges: anyone proposes a rule, a number of weeks and a fine per miss ----------
+  function customChalSection() {
+    var cs = S.chals || [], h = '<div class="row between" style="margin-top:8px"><h2 class="h">Custom challenges</h2><button class="pill lime" data-a="openChal">+ Propose</button></div>';
+    if (!cs.length) return h + '<p class="sub">Got a challenge in mind: no more than 3 drinks a week, no sweets, a daily walk? Set the weeks and the fine, the guys join, and each week everyone checks in. Keep to it and you split the pot. Miss and you pay in.</p>';
+    cs.forEach(function (c) {
+      var due = c.joined ? c.weeksOut.filter(function (w) { return w.state === 'answering' && !w.mine; }).length : 0;
+      h += '<article class="card col tap" data-a="chalOpen" data-id="' + esc(c.id) + '" style="gap:8px' + (c.status === 'done' ? '' : ';border-color:var(--lime)') + '"><div class="row between"><b style="font-size:17px">' + esc(c.name) + '</b><span class="tag' + (c.status === 'done' ? '' : ' lime') + '">' + (c.status === 'enrolling' ? 'JOIN NOW' : c.status === 'running' ? 'LIVE' : 'DONE') + '</span></div>' +
+        '<p class="sub">' + esc(c.rules) + '</p><span class="sub">' + c.weeks + (c.weeks === 1 ? ' week' : ' weeks') + ' \u00b7 ' + money(c.fine) + ' per miss \u00b7 ' + (c.status === 'enrolling' ? 'starts ' : 'began ') + esc(cdate(c.start)) + ' \u00b7 ' + c.members.length + ' in</span>' +
+        (due ? '<b class="neg">Check-in waiting for you</b>' : c.joined ? '<span class="pos" style="font-weight:800">\u2713 You are in</span>' : '') + '</article>';
+    });
     return h;
+  }
+  function nextMondays(n) {
+    var d = new Date(S.week.today + 'T12:00:00'), out = [];
+    d.setDate(d.getDate() + 1);
+    while (d.getDay() !== 1) d.setDate(d.getDate() + 1);
+    for (var i = 0; i < n; i++) { out.push(d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2)); d.setDate(d.getDate() + 7); }
+    return out;
+  }
+  function newChalSheet() {
+    var P = ui.nc || {}, mons = nextMondays(5), dflt = mons[(new Date(mons[0] + 'T12:00:00') - new Date(S.week.today + 'T12:00:00')) / 864e5 >= 3 ? 0 : 1];
+    return sheetWrap('Propose a challenge', '<p class="sub">Make up any rule. People join before it starts. When each week ends everyone in it is asked in the feed: did you keep to it? Yes = in the money. No (or no answer in ' + 3 + ' days) = you pay the fine. The fines go to the people who kept to it.</p>' +
+      '<div class="col" style="gap:10px"><label class="lab" for="ncName">Name</label><input class="txt" id="ncName" maxlength="60" placeholder="Dry-ish November" value="' + esc(P.name || '') + '"></div>' +
+      '<div class="col" style="gap:10px"><label class="lab" for="ncRules">The rule: what counts as a yes each week?</label><textarea class="txt" id="ncRules" rows="3" maxlength="500" placeholder="No more than 3 drinks in the week">' + esc(P.rules || '') + '</textarea></div>' +
+      '<div class="row" style="gap:12px"><div class="col grow" style="gap:10px"><label class="lab" for="ncWeeks">Weeks</label><input class="txt" id="ncWeeks" type="number" inputmode="numeric" min="1" max="26" value="' + esc(P.weeks || '4') + '"></div>' +
+      '<div class="col grow" style="gap:10px"><label class="lab" for="ncFine">Fine per missed week</label><div class="field"><b class="sub" style="font-size:20px">$</b><input id="ncFine" type="number" inputmode="decimal" min="1" value="' + esc(P.fine || '10') + '"></div></div></div>' +
+      '<div class="col" style="gap:10px"><label class="lab" for="ncStart">Starts (people can join until then)</label><select class="txt" id="ncStart">' + mons.map(function (m) { return '<option value="' + m + '"' + ((P.start || dflt) === m ? ' selected' : '') + '>' + esc(cdate(m)) + '</option>'; }).join('') + '</select></div>',
+      '<button class="btn" data-a="chalCreate">Post the challenge</button>');
+  }
+  function chalSheet(id) {
+    var c = chalById(id); if (!c) return sheetWrap('Challenge', '<div class="empty">That challenge is gone.</div>', '');
+    var h = '<p style="color:var(--soft)">' + esc(c.rules) + '</p><p class="sub">Proposed by ' + esc(person(c.createdBy)) + ' \u00b7 ' + c.weeks + (c.weeks === 1 ? ' week' : ' weeks') + ' \u00b7 ' + money(c.fine) + ' per missed week \u00b7 ' + esc(cdate(c.start)) + ' to ' + esc(cdate(c.end)) + '</p>';
+    if (c.status === 'enrolling') h += c.joined ? '<div class="row between"><span class="pos" style="font-weight:800">\u2713 You are in</span><button class="link" style="color:var(--dim)" data-a="chalLeave" data-id="' + esc(c.id) + '">Leave</button></div>' : '<button class="btn" data-a="chalJoin" data-id="' + esc(c.id) + '">Join. A miss costs ' + money(c.fine) + '</button>';
+    h += '<div class="col" style="gap:8px"><span class="lab">Who is in (' + c.members.length + ')</span>' + (c.standings.length ? '<div class="list">' + c.standings.map(function (r) {
+      var net = Math.round((r.won - r.owes) * 100) / 100;
+      return '<div><div class="col grow" style="gap:1px">' + nameBtn(r.pid) + '<span class="sub" style="font-size:12px">' + r.hit + ' kept \u00b7 ' + r.missed + ' missed</span></div><b class="num ' + (net < 0 ? 'neg' : net > 0 ? 'pos' : '') + '">' + (net > 0 ? '+' : '') + money(net) + '</b></div>';
+    }).join('') + '</div>' : '<p class="sub">Nobody yet.</p>') + '</div>';
+    h += '<div class="col" style="gap:8px"><span class="lab">Week by week</span><div class="list">' + c.weeksOut.map(function (w) {
+      var right;
+      if (w.state === 'upcoming') right = '<span class="sub">Not started</span>';
+      else if (w.state === 'running') right = '<span class="tag lime">THIS WEEK</span>';
+      else if (w.state === 'answering') right = c.joined ? '<div class="row" style="gap:6px"><button class="pill' + (w.mine === 'yes' ? ' lime' : '') + '" data-a="chalAns" data-id="' + esc(c.id) + '" data-w="' + w.k + '" data-v="yes">Yes</button><button class="pill' + (w.mine === 'no' ? ' lime' : '') + '" data-a="chalAns" data-id="' + esc(c.id) + '" data-w="' + w.k + '" data-v="no">No</button></div>' : '<span class="sub">' + w.answered + ' of ' + w.total + ' checked in</span>';
+      else right = '<span class="sub" style="text-align:right">' + (w.misses.length ? w.yes.length + ' kept \u00b7 ' + w.misses.length + ' missed' + (w.yes.length ? ' \u00b7 ' + money(w.each) + ' each' : '') : 'Everyone kept to it') + '</span>';
+      return '<div><div class="col grow" style="gap:1px"><b>Week ' + w.k + '</b><span class="sub" style="font-size:12px">' + esc(cdate(w.start)) + ' to ' + esc(cdate(w.end)) + '</span></div>' + right + '</div>';
+    }).join('') + '</div><p class="sub">When a week ends you get a check-in in the feed. Unanswered after ' + c.grace + ' days counts as a miss. The money lands in everyone\'s balance on the Bets screen.</p></div>';
+    if (c.canCancel) h += '<button class="link" style="color:var(--dim);text-align:left" data-a="chalCancelC" data-id="' + esc(c.id) + '">Cancel this challenge</button>';
+    return sheetWrap(c.name, h, '');
   }
 
   // ---------- push notifications (Firebase Cloud Messaging) ----------
@@ -1310,13 +1376,14 @@ h2.h{font-size:18px}
     var keep = document.getElementById('logNote'); if (keep && t.t === 'log') ui.log.note = keep.value;
     var fbk = document.getElementById('fbText'); if (fbk && t.t === 'feedback') ui.fb = fbk.value;
     var npn = document.getElementById('npName'); if (npn && t.t === 'newpot' && ui.npot) { ui.npot.name = npn.value; ui.npot.description = (document.getElementById('npDesc') || {}).value; ui.npot.entry = (document.getElementById('npEntry') || {}).value; }
+    var ncn = document.getElementById('ncName'); if (ncn && t.t === 'newchal' && ui.nc) { ui.nc.name = ncn.value; ui.nc.rules = (document.getElementById('ncRules') || {}).value; ui.nc.weeks = (document.getElementById('ncWeeks') || {}).value; ui.nc.fine = (document.getElementById('ncFine') || {}).value; ui.nc.start = (document.getElementById('ncStart') || {}).value; }
     var ept = document.getElementById('epText'); if (ept && t.t === 'editpost' && ui.ep) ui.ep.text = ept.value;
     var dpa = document.getElementById('depAmt'); if (dpa && t.t === 'deposit' && ui.dep) ui.dep.amount = dpa.value;
     var pst = document.getElementById('postText'); if (pst && t.t === 'post' && ui.post) ui.post.text = pst.value;
     if (t.t === 'bet') grabBet();
     var body = document.getElementById('sheetBody');
     var y = body && el.getAttribute('data-key') === sheetKey(t) ? body.scrollTop : 0;
-    el.innerHTML = t.t === 'newpot' ? newPotSheet() : t.t === 'share' ? shareSheet() : t.t === 'settings' ? settingsSheet() : t.t === 'editpost' ? editPostSheet() : t.t === 'pot' ? potSheet(t.id) : t.t === 'deposit' ? depositSheet() : t.t === 'admin' ? adminSheet() : t.t === 'usage' ? usageSheet() : t.t === 'fbInbox' ? feedbackInboxSheet() : t.t === 'betsDone' ? betsDoneSheet() : t.t === 'post' ? postSheet() : t.t === 'photo' ? photoSheet(t.id) : t.t === 'news' ? newsSheet() : t.t === 'newsAll' ? newsAllSheet() : t.t === 'feedback' ? feedbackSheet() : t.t === 'log' ? logSheet() : t.t === 'bet' ? betSheet() : t.t === 'betd' ? betDetailSheet(t.id) : t.t === 'week' ? weekSheet(t.week) : t.t === 'profile' ? profileSheet(t.pid) : badgeSheet(t.id, t.pid);
+    el.innerHTML = t.t === 'newchal' ? newChalSheet() : t.t === 'chal' ? chalSheet(t.id) : t.t === 'newpot' ? newPotSheet() : t.t === 'share' ? shareSheet() : t.t === 'settings' ? settingsSheet() : t.t === 'editpost' ? editPostSheet() : t.t === 'pot' ? potSheet(t.id) : t.t === 'deposit' ? depositSheet() : t.t === 'admin' ? adminSheet() : t.t === 'usage' ? usageSheet() : t.t === 'fbInbox' ? feedbackInboxSheet() : t.t === 'betsDone' ? betsDoneSheet() : t.t === 'post' ? postSheet() : t.t === 'photo' ? photoSheet(t.id) : t.t === 'news' ? newsSheet() : t.t === 'newsAll' ? newsAllSheet() : t.t === 'feedback' ? feedbackSheet() : t.t === 'log' ? logSheet() : t.t === 'bet' ? betSheet() : t.t === 'betd' ? betDetailSheet(t.id) : t.t === 'week' ? weekSheet(t.week) : t.t === 'profile' ? profileSheet(t.pid) : badgeSheet(t.id, t.pid);
     el.setAttribute('data-key', sheetKey(t));
     if (y) document.getElementById('sheetBody').scrollTop = y;
   }
@@ -1564,6 +1631,21 @@ h2.h{font-size:18px}
       var id = 'cpot_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
       api('potCreate', { id: id, name: name, description: desc, entry: entry }).then(function (j) { if (j) { ui.npot = null; closeAll(); pushSheet({ t: 'pot', id: id }); } });
     },
+    openChal: function () { setFab(false); ui.nc = { name: '', rules: '', weeks: '4', fine: '10', start: '' }; pushSheet({ t: 'newchal' }); },
+    chalCreate: function () {
+      var name = val('ncName'), rules = val('ncRules'), weeks = parseInt(val('ncWeeks'), 10), fine = parseFloat(val('ncFine')), start = val('ncStart');
+      if (name.length < 3) { toast('Give the challenge a name.', true); return; }
+      if (rules.length < 5) { toast('Say what the rule is.', true); return; }
+      if (!(weeks >= 1 && weeks <= 26)) { toast('Pick 1 to 26 weeks.', true); return; }
+      if (!(fine >= 1)) { toast('Set the fine per missed week.', true); return; }
+      var id = 'chal_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+      api('chalCreate', { id: id, name: name, rules: rules, weeks: weeks, fine: fine, start: start }).then(function (j) { if (j) { ui.nc = null; closeAll(); pushSheet({ t: 'chal', id: id }); } });
+    },
+    chalOpen: function (id) { pushSheet({ t: 'chal', id: id }); },
+    chalJoin: function (id) { api('chalJoin', { id: id }).then(done); },
+    chalLeave: function (id) { if (!confirm('Leave this challenge?')) return; api('chalLeave', { id: id }).then(done); },
+    chalAns: function (id, el) { api('chalAnswer', { id: id, week: el.getAttribute('data-w'), answer: el.getAttribute('data-v') }).then(done); },
+    chalCancelC: function (id) { if (!confirm('Cancel this challenge? Nobody will owe anything for it.')) return; api('chalCancel', { id: id }).then(function (j) { if (j) { closeAll(); render(); } }); },
     potJoin: function (id) { api('potJoin', { id: id }).then(done); },
     potLeave: function (id) { if (!confirm('Leave this pot?')) return; api('potLeave', { id: id }).then(done); },
     potWin: function (id, el) {

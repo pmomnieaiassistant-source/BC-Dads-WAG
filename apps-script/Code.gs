@@ -26,7 +26,7 @@
 // This ONE file replaces Code.gs, webapp.gs, appsheet_v6_bridge.gs and Index.html.
 // ================================================================
 
-var V7_VERSION = '8.6';
+var V7_VERSION = '8.7';
 var SB_GRACE_MIN = 90;            // side bets: how long after a period ends before a "didn't happen" is paid out (lets late WHOOP data arrive)
 var APP_SYNC_COOLDOWN_MIN = 5;   // the in-app Sync button pulls WHOOP at most this often, for the whole group
 
@@ -41,7 +41,7 @@ var TAB = {
   CYCLES: 'Cycles', EVENTS: 'Feed_Events', COMMENTS: 'Comments',
   REACTIONS: 'Reactions', POTS: 'Bet_Pots', BANK: 'Bank_Log',
   MEMBERS: 'Challenge_Members', WEIGHTS: 'Weights', RUN_LOG: 'Run_Log',
-  TRACKER: 'Tracker', BETS: 'Side_Bets', WAGERS: 'Side_Wagers', FEEDBACK: 'Feedback', UPDATES: 'Updates', PHOTOS: 'Photos', CPOTS: 'Custom_Pots'
+  TRACKER: 'Tracker', BETS: 'Side_Bets', WAGERS: 'Side_Wagers', FEEDBACK: 'Feedback', UPDATES: 'Updates', PHOTOS: 'Photos', CPOTS: 'Custom_Pots', CHAL: 'Custom_Challenges', CHK: 'Challenge_Checkins'
 };
 
 var HEAD = {
@@ -54,6 +54,8 @@ var HEAD = {
   Reactions: ['target_id', 'participant_id', 'created_at', 'kind'],
   Updates: ['update_id', 'date', 'title', 'message', 'hidden_from'],
   Custom_Pots: ['pot_id', 'created_at', 'created_by', 'name', 'description', 'entry', 'status', 'members', 'joined', 'winners', 'end_amount', 'settled_by', 'settled_at'],
+  Custom_Challenges: ['chal_id', 'created_at', 'created_by', 'name', 'rules', 'weeks', 'fine', 'start_date', 'status', 'members', 'joined'],
+  Challenge_Checkins: ['checkin_id', 'chal_id', 'participant_id', 'week', 'answer', 'created_at'],
   Photos: ['photo_id', 'target_id', 'participant_id', 'file_id', 'created_at'],
   Bet_Pots: ['week', 'end_amount', 'members', 'settled_by', 'settled_at'],
   Bank_Log: ['entry_id', 'created_at', 'type', 'participant_id', 'week', 'amount', 'note', 'status', 'confirmed_by', 'confirmed_at'],
@@ -1185,7 +1187,7 @@ function handleApi_(req) {
     logWorkout: apiLogWorkout_, editWorkout: apiEditWorkout_, deleteWorkout: apiDeleteWorkout_,
     react: apiReact_, comment: apiComment_, deleteComment: apiDeleteComment_,
     settle: apiSettle_, payment: apiPayment_, join: apiJoin_, leave: apiLeave_, weight: apiWeight_,
-    betPropose: apiBetPropose_, betPlace: apiBetPlace_, betResolve: apiBetResolve_, paymentDecide: apiPaymentDecide_, potCreate: apiPotCreate_, potJoin: apiPotJoin_, potLeave: apiPotLeave_, potSettle: apiPotSettle_, potCancel: apiPotCancel_, adminDelete: apiAdminDelete_, photoAdd: apiPhotoAdd_, photoDelete: apiPhotoDelete_, post: apiPost_, deletePost: apiDeletePost_
+    betPropose: apiBetPropose_, betPlace: apiBetPlace_, betResolve: apiBetResolve_, paymentDecide: apiPaymentDecide_, potCreate: apiPotCreate_, potJoin: apiPotJoin_, potLeave: apiPotLeave_, potSettle: apiPotSettle_, potCancel: apiPotCancel_, chalCreate: apiChalCreate_, chalJoin: apiChalJoin_, chalLeave: apiChalLeave_, chalAnswer: apiChalAnswer_, chalCancel: apiChalCancel_, adminDelete: apiAdminDelete_, photoAdd: apiPhotoAdd_, photoDelete: apiPhotoDelete_, post: apiPost_, deletePost: apiDeletePost_
   };
   if (action === 'syncNow') return apiSyncNow_(me, profilePid);
   if (!handlers[action]) return { ok: false, error: 'Unknown action: ' + action };
@@ -1628,6 +1630,139 @@ function apiPotCancel_(me, req, ctx) {
   return 'Pot cancelled. Nobody owes an entry for it any more.';
 }
 
+
+// ---------- custom challenges ----------
+// Anyone proposes a challenge: a rule, a number of weeks and a fine per missed week. People join before it starts (it always starts on a Monday).
+// When each week ends, everyone in it is asked "did you keep to it?" in the feed. Yes = in the money. No (or no answer by the deadline) = owes the fine.
+// The fines of the week are split between the people who said yes, and show up in the bank accounts next to the regular tracker money.
+var CHAL_GRACE_DAYS = 3;   // answer by Wednesday after the week ends, or it counts as a miss
+
+function chalAll_(ctx) {
+  if (ctx._chal) return ctx._chal;
+  var answers = {};
+  readTable_(TAB.CHK).forEach(function(a) { answers[str_(a.chal_id) + '|' + str_(a.week) + '|' + str_(a.participant_id)] = { ans: str_(a.answer).toLowerCase(), ts: str_(a.created_at) }; });
+  var tn = dayNum_(ctx.today), out = [];
+  readTable_(TAB.CHAL).forEach(function(r) {
+    if (str_(r.status) === 'cancelled') return;
+    var c = { id: str_(r.chal_id), name: str_(r.name), rules: str_(r.rules), weeks: Math.max(1, parseInt(r.weeks, 10) || 1), fine: num_(r.fine, 0), start: str_(r.start_date),
+      createdBy: str_(r.created_by), createdAt: str_(r.created_at), _row: r._row, _raw: r, weeksList: [] };
+    c.members = csv_(r.members).filter(function(pid) { return ctx.byPid[pid] && ctx.byPid[pid].active; });
+    if (!c.start || isNaN(dayNum_(c.start))) return;
+    for (var k = 1; k <= c.weeks; k++) {
+      var ws = addDays_(c.start, (k - 1) * 7), we = addDays_(ws, 6), deadline = addDays_(we, CHAL_GRACE_DAYS);
+      var state = tn < dayNum_(ws) ? 'upcoming' : tn <= dayNum_(we) ? 'running' : 'answering';
+      var yes = [], no = [], pending = [], last = '', ans = {};
+      c.members.forEach(function(pid) {
+        var a = answers[c.id + '|' + k + '|' + pid];
+        if (a && a.ans === 'yes') yes.push(pid); else if (a && a.ans === 'no') no.push(pid); else pending.push(pid);
+        if (a) { ans[pid] = a.ans; if (a.ts > last) last = a.ts; }
+      });
+      var allIn = c.members.length > 0 && !pending.length;
+      if (state === 'answering' && (tn > dayNum_(deadline) || allIn || !c.members.length)) state = 'final';
+      var misses = state === 'final' ? no.concat(pending) : [];
+      var pot = round2_(misses.length * c.fine);
+      c.weeksList.push({ k: k, start: ws, end: we, state: state, yes: state === 'final' ? yes : [], misses: misses, answers: ans, answered: yes.length + no.length, total: c.members.length,
+        pot: pot, each: state === 'final' && yes.length ? round2_(pot / yes.length) : 0,
+        finalTs: allIn && last ? last : addDays_(deadline, 1) + 'T05:00:00.000Z' });
+    }
+    out.push(c);
+  });
+  ctx._chal = out;
+  return out;
+}
+function chalFind_(ctx, id) { var hit = null; chalAll_(ctx).forEach(function(c) { if (c.id === id) hit = c; }); return hit; }
+function chalSave_(c, members, joined, extra) {
+  var r = c._raw; r.members = members.join(','); r.joined = joined.join(',');
+  Object.keys(extra || {}).forEach(function(k) { r[k] = extra[k]; });
+  updateRow_(TAB.CHAL, c._row, r);
+}
+function chalResultText_(ctx, c, w) {
+  function nm(pid) { return (ctx.byPid[pid] || { name: pid }).name; }
+  if (!w.misses.length) return 'Everybody kept to it. Nobody pays.';
+  var t = (w.yes.length ? 'In the money: ' + w.yes.map(nm).join(', ') + '. ' : 'Nobody kept to it. ') + 'Missed: ' + w.misses.map(nm).join(', ') + ' (' + money_(c.fine) + ' each).';
+  return t + (w.yes.length ? ' ' + money_(w.pot) + ' pot, ' + money_(w.each) + ' each.' : ' Nobody to split the pot with, so it stays in the bank.');
+}
+
+function chalState_(me, ctx) {
+  var tn = dayNum_(ctx.today);
+  return chalAll_(ctx).map(function(c) {
+    var enrolling = tn < dayNum_(c.start), done = c.weeksList.every(function(w) { return w.state === 'final'; });
+    var stand = {};
+    c.members.forEach(function(pid) { stand[pid] = { pid: pid, hit: 0, missed: 0, won: 0, owes: 0 }; });
+    c.weeksList.forEach(function(w) {
+      if (w.state !== 'final') return;
+      w.yes.forEach(function(pid) { if (stand[pid]) { stand[pid].hit++; stand[pid].won = round2_(stand[pid].won + w.each); } });
+      w.misses.forEach(function(pid) { if (stand[pid]) { stand[pid].missed++; stand[pid].owes = round2_(stand[pid].owes + c.fine); } });
+    });
+    return { id: c.id, name: c.name, rules: c.rules, weeks: c.weeks, fine: c.fine, start: c.start, end: addDays_(c.start, c.weeks * 7 - 1), createdBy: c.createdBy, createdAt: c.createdAt,
+      members: c.members, status: enrolling ? 'enrolling' : done ? 'done' : 'running', joined: c.members.indexOf(me.pid) !== -1,
+      canCancel: isAdmin_(me, ctx.settings) || (c.createdBy === me.pid && enrolling), grace: CHAL_GRACE_DAYS,
+      standings: Object.keys(stand).map(function(k) { return stand[k]; }).sort(function(a, b) { return (b.won - b.owes) - (a.won - a.owes) || b.hit - a.hit; }),
+      weeksOut: c.weeksList.map(function(w) { return { k: w.k, start: w.start, end: w.end, state: w.state, yes: w.yes, misses: w.misses, answered: w.answered, total: w.total, mine: w.answers[me.pid] || '', pot: w.pot, each: w.each }; }) };
+  }).sort(function(a, b) { var o = { enrolling: 0, running: 1, done: 2 }; return o[a.status] - o[b.status] || String(b.createdAt).localeCompare(String(a.createdAt)); });
+}
+
+function apiChalCreate_(me, req, ctx) {
+  var name = truncate_(str_(req.name), 60), rules = truncate_(str_(req.rules), 500), weeks = parseInt(req.weeks, 10), fine = round2_(num_(req.fine, NaN)), start = str_(req.start);
+  if (name.length < 3) throw new Error('Give the challenge a name.');
+  if (rules.length < 5) throw new Error('Say what the rule is, so everyone knows what a yes means.');
+  if (isNaN(weeks) || weeks < 1 || weeks > 26) throw new Error('Pick 1 to 26 weeks.');
+  if (isNaN(fine) || fine < 1 || fine > 1000) throw new Error('Set the fine per missed week, $1 to $1,000.');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || isNaN(dayNum_(start))) throw new Error('Pick a start date.');
+  if (new Date(start + 'T12:00:00Z').getUTCDay() !== 1) throw new Error('A challenge starts on a Monday.');
+  if (dayNum_(start) <= dayNum_(ctx.today)) throw new Error('Pick a start date in the future so people can join first.');
+  if (dayNum_(start) - dayNum_(ctx.today) > 42) throw new Error('Start within the next 6 weeks.');
+  var id = /^chal_[A-Za-z0-9]{8,30}$/.test(str_(req.id)) && !chalFind_(ctx, str_(req.id)) ? str_(req.id) : 'chal_' + shortId_(), now = nowIso_();
+  appendRows_(TAB.CHAL, [{ chal_id: id, created_at: now, created_by: me.pid, name: name, rules: rules, weeks: String(weeks), fine: String(fine), start_date: start, status: 'open', members: me.pid, joined: now }]);
+  appendRows_(TAB.EVENTS, [{ event_id: 'customchal_' + id, created_at: now, type: 'customchal', participant_id: me.pid, week: id, title: me.name + ' proposed a challenge: ' + name,
+    body: rules + ' ' + weeks + (weeks === 1 ? ' week' : ' weeks') + ', ' + money_(fine) + ' per missed week. Starts ' + dowLabel_(start) + ' ' + mdLabel_(start) + '. Join before then.' }]);
+  try { pushToPeople_(pushEveryone_(ctx), 'updates', 'New challenge', me.name + ' proposed "' + name + '" (' + money_(fine) + ' per miss). Join before it starts.', me.pid); } catch (pe) { Logger.log('push chal: ' + pe.message); }
+  return 'Challenge posted. You are in.';
+}
+function apiChalJoin_(me, req, ctx) {
+  var c = chalFind_(ctx, str_(req.id));
+  if (!c) throw new Error('That challenge was not found.');
+  if (dayNum_(ctx.today) >= dayNum_(c.start)) throw new Error('That challenge has already started.');
+  if (c.members.indexOf(me.pid) !== -1) return 'You are already in.';
+  var raw = csv_(c._raw.members), jn = csv_(c._raw.joined);
+  chalSave_(c, raw.concat([me.pid]), raw.map(function(m, i) { return jn[i] || c.createdAt; }).concat([nowIso_()]), {});
+  return 'You are in. Miss a week and it costs ' + money_(c.fine) + '.';
+}
+function apiChalLeave_(me, req, ctx) {
+  var c = chalFind_(ctx, str_(req.id));
+  if (!c) throw new Error('That challenge was not found.');
+  if (dayNum_(ctx.today) >= dayNum_(c.start)) throw new Error('It has started. No backing out now.');
+  var raw = csv_(c._raw.members), jn = csv_(c._raw.joined), i = raw.indexOf(me.pid);
+  if (i === -1) return '';
+  raw.splice(i, 1); jn.splice(i, 1);
+  chalSave_(c, raw, jn, {});
+  return 'You are out.';
+}
+// "Did you keep to it this week?" Yes or no, changeable until the week is settled.
+function apiChalAnswer_(me, req, ctx) {
+  var c = chalFind_(ctx, str_(req.id)), k = parseInt(req.week, 10), ans = str_(req.answer).toLowerCase();
+  if (!c) throw new Error('That challenge was not found.');
+  if (c.members.indexOf(me.pid) === -1) throw new Error('You are not in this challenge.');
+  if (ans !== 'yes' && ans !== 'no') throw new Error('Answer yes or no.');
+  var w = c.weeksList[k - 1];
+  if (!w) throw new Error('That week does not exist.');
+  if (w.state === 'upcoming' || w.state === 'running') throw new Error('That week is not over yet.');
+  if (w.state === 'final') throw new Error('That week is already settled.');
+  var hit = null;
+  readTable_(TAB.CHK).forEach(function(a) { if (str_(a.chal_id) === c.id && str_(a.week) === String(k) && str_(a.participant_id) === me.pid) hit = a; });
+  if (hit) { hit.answer = ans; hit.created_at = nowIso_(); updateRow_(TAB.CHK, hit._row, hit); }
+  else appendRows_(TAB.CHK, [{ checkin_id: 'k_' + shortId_(), chal_id: c.id, participant_id: me.pid, week: String(k), answer: ans, created_at: nowIso_() }]);
+  return ans === 'yes' ? 'Logged: you kept to it.' : 'Logged: missed. ' + money_(c.fine) + ' goes in the pot.';
+}
+function apiChalCancel_(me, req, ctx) {
+  var c = chalFind_(ctx, str_(req.id));
+  if (!c) throw new Error('That challenge was not found.');
+  var admin = isAdmin_(me, ctx.settings), early = dayNum_(ctx.today) < dayNum_(c.start);
+  if (!admin && !(c.createdBy === me.pid && early)) throw new Error('Only the person who proposed it (before it starts) or the admin can cancel it.');
+  chalSave_(c, csv_(c._raw.members), csv_(c._raw.joined), { status: 'cancelled' });
+  return 'Challenge cancelled. Nobody owes anything for it.';
+}
+
 // ---------- photos on workout posts ----------
 // Files go in a Drive folder ("BC Dads WAG photos", shared view-only by link so the app can show them).
 // One row per photo in the Photos tab. Up to 4 per post. Only the post's owner adds; the owner or the admin deletes.
@@ -1914,7 +2049,7 @@ function computeBank_(ctx) {
   var potRows = {};
   readTable_(TAB.POTS).forEach(function(p) { potRows[parseInt(p.week, 10)] = p; });
   var acct = {};
-  ctx.people.forEach(function(p) { if (p.active) acct[p.pid] = { pid: p.pid, won: 0, fines: 0, entries: 0, paid: 0, side: 0, open: 0, openCount: 0 }; });
+  ctx.people.forEach(function(p) { if (p.active) acct[p.pid] = { pid: p.pid, won: 0, fines: 0, entries: 0, paid: 0, side: 0, open: 0, openCount: 0, cwon: 0, cfines: 0 }; });
 
   var pots = [], fineRows = {};
   for (var wk = ctx.currentWeek - 1; wk >= ctx.bankStartWeek; wk--) {
@@ -1968,6 +2103,19 @@ function computeBank_(ctx) {
     });
   });
 
+  // Custom challenges: a missed week is a fine; the fines of a finished week are split by the people who hit it.
+  chalAll_(ctx).forEach(function(c) {
+    c.weeksList.forEach(function(w) {
+      if (w.state !== 'final') return;
+      w.misses.forEach(function(pid) {
+        if (!acct[pid]) return;
+        acct[pid].cfines = round2_(acct[pid].cfines + c.fine);
+        (fineRows[pid] = fineRows[pid] || []).push({ key: 'x' + c.id + '_' + w.k, date: Date.parse(w.end + 'T12:00:00Z') || 0, amount: c.fine });
+      });
+      w.yes.forEach(function(pid) { if (acct[pid]) acct[pid].cwon = round2_(acct[pid].cwon + w.each); });
+    });
+  });
+
   // Custom pots: each member owes the entry; winners of a settled pot split the total.
   var cpots = cpotRows_();
   cpots.forEach(function(cp) {
@@ -1984,7 +2132,7 @@ function computeBank_(ctx) {
 
   var accounts = Object.keys(acct).map(function(pid) {
     var a = acct[pid];
-    a.balance = round2_(a.won - a.fines - a.entries + a.paid + a.side);
+    a.balance = round2_(a.won + a.cwon - a.fines - a.cfines - a.entries + a.paid + a.side);
     a.owes = a.balance < 0 ? round2_(-a.balance) : 0;
     a.pending = round2_(pending.filter(function(x) { return x.pid === pid; }).reduce(function(t, x) { return t + x.amount; }, 0));
     return a;
@@ -2196,7 +2344,7 @@ function feedItems_(me, ctx, onlyPid, limit) {
     if (str_(e.deleted)) return;
     if (onlyPid && e.participant_id !== onlyPid) return;
     items.push({ id: e.event_id, kind: 'e', type: e.type, pid: e.participant_id, ts: e.created_at, title: e.title, body: e.body,
-                 toPid: e.type === 'wall' ? str_(e.week) : '', badgeId: e.type.indexOf('badge_') === 0 ? str_(e.week) : '', potId: e.type === 'custompot' ? str_(e.week) : '' });
+                 toPid: e.type === 'wall' ? str_(e.week) : '', badgeId: e.type.indexOf('badge_') === 0 ? str_(e.week) : '', potId: e.type === 'custompot' ? str_(e.week) : '', chalId: e.type === 'customchal' ? str_(e.week) : '' });
   });
   if (!onlyPid) {
     // Side bets: an open bet shows as a card (never to the people it is hidden from); a finished one shows its result to everyone.
@@ -2207,6 +2355,18 @@ function feedItems_(me, ctx, onlyPid, limit) {
       } else {
         items.push({ id: 'r' + b.bet_id, kind: 'e', type: b.status === 'void' ? 'bet_off' : 'bet_result', pid: '', ts: b.settled_at, title: b.result_title, body: b.result_body, betId: b.bet_id });
       }
+    });
+  }
+  if (!onlyPid) {
+    // Custom challenges: the check-in question (only to people in it, until the week is settled) and the result once it is.
+    chalAll_(ctx).forEach(function(c) {
+      c.weeksList.forEach(function(w) {
+        if (w.state === 'answering' && c.members.indexOf(me.pid) !== -1) {
+          items.push({ id: 'cq_' + c.id + '_' + w.k, kind: 'e', type: 'chalq', pid: '', ts: addDays_(w.end, 1) + 'T05:00:00.000Z', title: 'Check-in: ' + c.name,
+            body: 'Week ' + w.k + ' of ' + c.weeks + '. ' + c.rules, chalId: c.id, week: w.k, mine: (w.answers[me.pid] || ''), fine: c.fine, by: addDays_(w.end, CHAL_GRACE_DAYS) });
+        }
+        if (w.state === 'final') items.push({ id: 'cr_' + c.id + '_' + w.k, kind: 'e', type: 'chalres', pid: '', ts: w.finalTs, title: c.name + ': Week ' + w.k + ' results', body: chalResultText_(ctx, c, w), chalId: c.id, week: w.k });
+      });
     });
   }
   items.sort(function(a, b) { return new Date(b.ts).getTime() - new Date(a.ts).getTime(); });
@@ -2509,6 +2669,7 @@ function buildStateCore_(me, ctx) {
     bets: sbState_(me, ctx, sbData_(ctx)),
     sbStats: Object.keys(SB_STATS).map(function(k) { return { id: k, label: SB_STATS[k].label, whoop: SB_STATS[k].whoop }; }),
     bank: bank,
+    chals: chalState_(me, ctx),
     challenges: ch,
     stats: extras.stats,
     badges: extras.badges
