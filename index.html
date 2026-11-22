@@ -635,7 +635,8 @@ h2.h{font-size:18px}
     return sheetWrap('Deposit', '<p class="sub">' + (D.note ? 'For the ' + esc(D.note) + ' pot. ' : (D.week ? 'For the Week ' + esc(D.week) + ' pot. ' : '')) + 'Pay <b>@' + esc(venmoUser()) + '</b> on Venmo, then tap \u201cI\'ve sent it\u201d so ' + esc(adminName()) + ' can confirm it arrived. It counts, and your alert goes away, once that is done.</p>' +
       '<div class="col" style="gap:10px"><label class="lab" for="depAmt">Amount</label><div class="field"><b class="sub" style="font-size:20px">$</b><input id="depAmt" type="number" inputmode="decimal" min="0" step="0.01" value="' + esc(amt) + '"></div></div>' +
       '<button class="btn" data-a="depVenmo">Open Venmo</button>' +
-      '<p class="sub" style="font-size:12px">Venmo opens with the amount filled in. If the amount does not carry over, type it in there. <button class="link" style="font-size:12px" data-a="depCopy">Copy @' + esc(venmoUser()) + '</button></p>',
+      '<p class="sub" style="font-size:12px">Venmo opens with the amount filled in. If the amount does not carry over, type it in there. <button class="link" style="font-size:12px" data-a="depCopy">Copy @' + esc(venmoUser()) + '</button></p>' +
+      '<p class="sub" style="font-size:12px">Venmo not opening? <button class="link" style="font-size:12px" data-a="depWeb">Use the Venmo website instead</button></p>',
       '<button class="btn ghost" data-a="depSent">I\'ve sent it</button>');
   }
   // A pinned alert at the top of the feed for anyone who owes money (or has a payment waiting to be confirmed).
@@ -950,7 +951,7 @@ h2.h{font-size:18px}
     h += '<div class="col" style="gap:10px"><span class="lab">People</span><div class="list">' + A.people.map(function (x) {
       return '<div><div class="col grow" style="gap:1px"><b>' + esc(x.name) + '</b><span class="sub" style="font-size:12px">' + (x.phone ? '+' + esc(x.phone) : 'No phone') + (x.active ? '' : ' \u00b7 not playing') + '</span></div><button class="pill" data-a="admPerson" data-id="' + esc(x.pid) + '">Edit</button><button class="pill' + (x.active ? ' lime' : '') + '" data-a="admActive" data-id="' + esc(x.pid) + '" aria-pressed="' + x.active + '">' + (x.active ? 'Playing' : 'Off') + '</button></div>';
     }).join('') + '</div></div>' +
-      '<div class="col" style="gap:10px"><span class="lab">Add a person</span><input class="txt" id="admName" placeholder="Name" maxlength="30"><input class="txt" id="admPhone" type="tel" inputmode="tel" placeholder="Phone (for texted workouts)"><button class="btn" data-a="admAdd">Add person</button></div>';
+      '<div class="col" style="gap:10px"><span class="lab">Add a person</span><span class="sub" style="font-size:12px">They start fresh this week: earlier weeks are marked off for them.</span><input class="txt" id="admName" placeholder="Name" maxlength="30"><input class="txt" id="admPhone" type="tel" inputmode="tel" placeholder="Phone (for texted workouts)"><button class="btn" data-a="admAdd">Add person</button></div>';
     return sheetWrap('Settings', h, '');
   }
   function editPostSheet() {
@@ -1535,6 +1536,11 @@ h2.h{font-size:18px}
       var w = ui.dep && ui.dep.week;
       openVenmo(a, 'BC Dads WAG' + (ui.dep && ui.dep.note ? ' ' + ui.dep.note : (w ? ' Week ' + w + ' pot' : '')));
     },
+    depWeb: function () {
+      var a = parseFloat(val('depAmt')); if (!(a > 0)) { toast('Enter the amount first.', true); return; }
+      var w = ui.dep && ui.dep.week;
+      window.open(venmoLinks(a, 'BC Dads WAG' + (ui.dep && ui.dep.note ? ' ' + ui.dep.note : (w ? ' Week ' + w + ' pot' : ''))).web, '_blank');
+    },
     depCopy: function () { var t = '@' + venmoUser(); try { navigator.clipboard.writeText(t).then(function () { toast('Copied ' + t); }, function () { toast(t); }); } catch (e) { toast(t); } },
     depSent: function () {
       var a = parseFloat(val('depAmt')); if (!(a > 0)) { toast('Enter the amount first.', true); return; }
@@ -1603,7 +1609,8 @@ h2.h{font-size:18px}
     },
     admActive: function (id) {
       var P = ui.adm2.people.filter(function (x) { return x.pid === id; })[0]; if (!P) return;
-      if (P.active && !confirm('Take ' + P.name + ' out of the game? They stop counting in the tracker.')) return;
+      if (P.active ? !confirm('Take ' + P.name + ' out of the whole season, past weeks included? Their past fines, pot wins and payments stop showing too. To skip just some weeks, use Weeks off instead.')
+          : !confirm('Put ' + P.name + ' back in? Any weeks they were out will count as missed (with fines) unless you mark them under Weeks off.')) return;
       api('adminPersonSet', { pid: id, active: P.active ? '' : '1' }, true).then(function (j) { admLoad(); if (j) refresh(true); });
     },
     admPerson: function (id) {
