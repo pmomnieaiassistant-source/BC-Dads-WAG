@@ -1,6 +1,7 @@
 // ================================================================
 // BC Dads WAG - v7 backend
-// Version: Nov 22, 2026 - v8.4
+// Version: Nov 22, 2026 - v8.5
+//   - v8.5: custom pots, admin Settings + share links, quiet admin edits / workouts for others, head-to-head bets close when decided, photos on bets
 //   - v8.4: a logged workout and the WHOOP workout for the same day merge into one card (WHOOP strain, heart rate, zones, calories)
 //   - v8.3: payments wait for the admin to confirm; Venmo deposit; pot cards with who owes / paid, photos and chat; only the admin settles pots
 //   - v8.2: notifications back on, sent one by one right away (no bundling); alerts for every reaction and for @tags
@@ -24,7 +25,7 @@
 // This ONE file replaces Code.gs, webapp.gs, appsheet_v6_bridge.gs and Index.html.
 // ================================================================
 
-var V7_VERSION = '8.4';
+var V7_VERSION = '8.5';
 var SB_GRACE_MIN = 90;            // side bets: how long after a period ends before a "didn't happen" is paid out (lets late WHOOP data arrive)
 var APP_SYNC_COOLDOWN_MIN = 5;   // the in-app Sync button pulls WHOOP at most this often, for the whole group
 
@@ -39,18 +40,19 @@ var TAB = {
   CYCLES: 'Cycles', EVENTS: 'Feed_Events', COMMENTS: 'Comments',
   REACTIONS: 'Reactions', POTS: 'Bet_Pots', BANK: 'Bank_Log',
   MEMBERS: 'Challenge_Members', WEIGHTS: 'Weights', RUN_LOG: 'Run_Log',
-  TRACKER: 'Tracker', BETS: 'Side_Bets', WAGERS: 'Side_Wagers', FEEDBACK: 'Feedback', UPDATES: 'Updates', PHOTOS: 'Photos'
+  TRACKER: 'Tracker', BETS: 'Side_Bets', WAGERS: 'Side_Wagers', FEEDBACK: 'Feedback', UPDATES: 'Updates', PHOTOS: 'Photos', CPOTS: 'Custom_Pots'
 };
 
 var HEAD = {
   Workouts: ['workout_id', 'participant_id', 'workout_date', 'workout_start', 'workout_end',
              'duration_minutes', 'strain', 'source', 'activity', 'effort', 'note', 'created_at', 'status', 'edited_at',
-             'avg_hr', 'max_hr', 'kilojoules', 'distance_m', 'zones', 'link_to'],
+             'avg_hr', 'max_hr', 'kilojoules', 'distance_m', 'zones', 'link_to', 'entered_by'],
   Cycles: ['cycle_key', 'participant_id', 'cycle_date', 'strain', 'updated_at'],
   Feed_Events: ['event_id', 'created_at', 'type', 'participant_id', 'week', 'title', 'body', 'deleted'],
   Comments: ['comment_id', 'target_id', 'participant_id', 'text', 'created_at'],
   Reactions: ['target_id', 'participant_id', 'created_at', 'kind'],
   Updates: ['update_id', 'date', 'title', 'message', 'hidden_from'],
+  Custom_Pots: ['pot_id', 'created_at', 'created_by', 'name', 'description', 'entry', 'status', 'members', 'joined', 'winners', 'end_amount', 'settled_by', 'settled_at'],
   Photos: ['photo_id', 'target_id', 'participant_id', 'file_id', 'created_at'],
   Bet_Pots: ['week', 'end_amount', 'members', 'settled_by', 'settled_at'],
   Bank_Log: ['entry_id', 'created_at', 'type', 'participant_id', 'week', 'amount', 'note', 'status', 'confirmed_by', 'confirmed_at'],
@@ -82,7 +84,7 @@ var DEFAULTS = {
   sync_days: '10',
   season_weeks: '20',
   feed_show_all_whoop: 'FALSE',
-  admins: 'Paul',
+  admins: 'p001',
   venmo_user: 'BC-Dads-WAG'
 };
 
@@ -1133,6 +1135,13 @@ function handleApi_(req) {
   var profilePid = str_(req.profile);
   var ctx;
 
+  // Admin only: Settings screen data and the personal links (read-only).
+  if (action === 'adminSettings' || action === 'adminLinks') {
+    var sctx = loadCtx_();
+    if (!isAdmin_(me, sctx.settings)) return { ok: false, error: 'Only the admin can see this.' };
+    return action === 'adminLinks' ? { ok: true, links: adminLinks_(sctx) } : { ok: true, admin: adminSettings_(sctx) };
+  }
+
   // Admin only: the Usage report and the Feedback inbox (read-only).
   if (action === 'adminUsage') {
     var actx = loadCtx_();
@@ -1141,7 +1150,7 @@ function handleApi_(req) {
   }
 
   // Small actions that never touch the tracker data: no recalculation, quick answer.
-  var LIGHT = { updateHide: apiUpdateHide_, pushToken: apiPushToken_, pushPrefs: apiPushPrefs_, pushTest: apiPushTest_, feedback: apiFeedback_, hidePost: apiHidePost_, unhidePosts: apiHidePost_ };
+  var LIGHT = { adminSet: apiAdminSet_, adminWeeksOff: apiAdminWeeksOff_, adminPersonAdd: apiAdminPersonAdd_, adminPersonSet: apiAdminPersonSet_, adminEditPost: apiAdminEditPost_, updateHide: apiUpdateHide_, pushToken: apiPushToken_, pushPrefs: apiPushPrefs_, pushTest: apiPushTest_, feedback: apiFeedback_, hidePost: apiHidePost_, unhidePosts: apiHidePost_ };
   if (LIGHT[action]) {
     var lk = LockService.getScriptLock();
     if (!lk.tryLock(25000)) return { ok: false, error: 'The tracker is busy for a moment. Try again.' };
@@ -1161,7 +1170,7 @@ function handleApi_(req) {
     logWorkout: apiLogWorkout_, editWorkout: apiEditWorkout_, deleteWorkout: apiDeleteWorkout_,
     react: apiReact_, comment: apiComment_, deleteComment: apiDeleteComment_,
     settle: apiSettle_, payment: apiPayment_, join: apiJoin_, leave: apiLeave_, weight: apiWeight_,
-    betPropose: apiBetPropose_, betPlace: apiBetPlace_, betResolve: apiBetResolve_, paymentDecide: apiPaymentDecide_, adminDelete: apiAdminDelete_, photoAdd: apiPhotoAdd_, photoDelete: apiPhotoDelete_, post: apiPost_, deletePost: apiDeletePost_
+    betPropose: apiBetPropose_, betPlace: apiBetPlace_, betResolve: apiBetResolve_, paymentDecide: apiPaymentDecide_, potCreate: apiPotCreate_, potJoin: apiPotJoin_, potLeave: apiPotLeave_, potSettle: apiPotSettle_, potCancel: apiPotCancel_, adminDelete: apiAdminDelete_, photoAdd: apiPhotoAdd_, photoDelete: apiPhotoDelete_, post: apiPost_, deletePost: apiDeletePost_
   };
   if (action === 'syncNow') return apiSyncNow_(me, profilePid);
   if (!handlers[action]) return { ok: false, error: 'Unknown action: ' + action };
@@ -1222,21 +1231,31 @@ function apiSyncNow_(me, profilePid) {
 
 function apiLogWorkout_(me, req, ctx) {
   if (ctx.currentWeek < 1) throw new Error('The challenge has not started yet.');
+  var admin = isAdmin_(me, ctx.settings), who = me, forPid = str_(req.forPid);
+  if (forPid && forPid !== me.pid) {
+    if (!admin) throw new Error('Only the admin can log a workout for someone else.');
+    who = ctx.byPid[forPid];
+    if (!who) throw new Error('Unknown person.');
+  }
   var date = isoOf_(req.date, ctx.tz);
   var ws = weekStartIso_(ctx.startIso, ctx.currentWeek);
-  if (!date || dayNum_(date) < dayNum_(ws) || dayNum_(date) > dayNum_(ctx.today)) {
-    throw new Error('You can log workouts for this week only, today or earlier.');
-  }
+  if (!date || dayNum_(date) > dayNum_(ctx.today)) throw new Error('Pick today or an earlier day.');
+  if (admin) { if (dayNum_(date) < dayNum_(ctx.startIso)) throw new Error('That is before the challenge started.'); }
+  else if (dayNum_(date) < dayNum_(ws)) throw new Error('You can log workouts for this week only, today or earlier.');
   var minutes = Math.round(num_(req.minutes, 0));
   if (minutes < 1 || minutes > 600) throw new Error('Enter how many minutes you worked out.');
   var type = truncate_(str_(req.type) || 'Workout', 30);
   var effort = truncate_(str_(req.effort), 20);
   var note = truncate_(str_(req.note), 500);
+  var forOther = who.pid !== me.pid, back = admin && date !== ctx.today;
   appendRows_(TAB.WORKOUTS, [{
-    workout_id: 'app_' + me.pid + '_' + date + '_' + shortId_(), participant_id: me.pid, workout_date: date,
+    workout_id: 'app_' + who.pid + '_' + date + '_' + shortId_(), participant_id: who.pid, workout_date: date,
     workout_start: '', workout_end: '', duration_minutes: String(minutes), strain: '', source: 'app',
-    activity: type, effort: effort, note: note, created_at: nowIso_(), status: 'active'
+    activity: type, effort: effort, note: note,
+    created_at: (forOther || back) && date !== ctx.today ? date + 'T17:00:00.000Z' : nowIso_(),   // a back-dated entry sits on its own day in the feed
+    status: 'active', entered_by: forOther ? me.pid : ''
   }]);
+  if (forOther) return 'Logged for ' + who.name + '.';
   return minutes >= ctx.minTime ? 'Workout logged.' : 'Logged, but it needs ' + ctx.minTime + ' minutes to count.';
 }
 
@@ -1289,6 +1308,110 @@ function apiAdminDelete_(me, req, ctx) {
   throw new Error('That post cannot be deleted.');
 }
 
+// ---------- admin: settings, people, weeks off, share links ----------
+var ADMIN_RULES = { min_days: [1, 7], min_time: [1, 300], min_effort: [0, 21], bet_per_miss: [0, 1000] };
+
+function partLink_(ctx, key) { var u = str_(ctx.settings.app_url); return key && u ? u + (u.indexOf('?') >= 0 ? '&' : '?') + 'k=' + key : ''; }
+
+function adminSettings_(ctx) {
+  var st = ctx.settings, offAll = [];
+  str_(st.inactive_week_indices).split(',').forEach(function(x) { var n = parseInt(x, 10); if (n > 0) offAll.push(n); });
+  return {
+    rules: { min_days: str_(st.min_days), min_time: str_(st.min_time), min_effort: str_(st.min_effort), bet_per_miss: str_(st.bet_per_miss), venmo_user: str_(st.venmo_user), bank_name: str_(st.bank_name) },
+    offAll: offAll, currentWeek: ctx.currentWeek, seasonWeeks: Math.max(ctx.currentWeek, parseInt(st.season_weeks, 10) || 20),
+    people: ctx.people.map(function(p) {
+      var off = []; Object.keys(p.offWeeks || {}).forEach(function(k) { off.push(parseInt(k, 10)); });
+      return { pid: p.pid, name: p.name, active: p.active, phone: p.phone, initials: p.initials, hasKey: !!p.key, off: off.sort(function(a, b) { return a - b; }) };
+    })
+  };
+}
+function adminLinks_(ctx) {
+  return ctx.people.filter(function(p) { return p.active; }).map(function(p) { return { pid: p.pid, name: p.name, phone: str_(p.phone).replace(/\D/g, ''), link: partLink_(ctx, p.key) }; });
+}
+function needAdmin_(me) { if (!isAdmin_(me, readSettings_())) throw new Error('Only the admin can do that.'); }
+
+// Changes one rule or setting. These apply to the whole season at once, past weeks included.
+function apiAdminSet_(me, req) {
+  needAdmin_(me);
+  var key = str_(req.key), val = str_(req.value);
+  if (ADMIN_RULES[key]) {
+    var n = Number(val), r = ADMIN_RULES[key];
+    if (val === '' || isNaN(n) || n < r[0] || n > r[1]) throw new Error('Enter a number from ' + r[0] + ' to ' + r[1] + '.');
+    setSetting_(key, String(n));
+  } else if (key === 'venmo_user') {
+    if (!/^[A-Za-z0-9_-]{3,40}$/.test(val.replace(/^@/, ''))) throw new Error('That does not look like a Venmo name.');
+    setSetting_(key, val.replace(/^@/, ''));
+  } else if (key === 'bank_name') { setSetting_(key, truncate_(val, 80)); }
+  else throw new Error('That setting cannot be changed here.');
+  return 'Saved.';
+}
+
+function partCell_(row, field, value) {
+  var sh = ensureParticipantCols_(), col = sheetHeaders_(sh).indexOf(field) + 1;
+  if (col < 1) throw new Error('Participants is missing the ' + field + ' column.');
+  sh.getRange(row, col).setNumberFormat('@').setValue(value);
+}
+
+// Weeks off: for everyone (pid "all": Settings > inactive_week_indices) or for one person (Participants > inactive_weeks).
+function apiAdminWeeksOff_(me, req) {
+  needAdmin_(me);
+  var weeks = [], seen = {};
+  str_(req.weeks).split(',').forEach(function(x) { var n = parseInt(x, 10); if (n > 0 && n < 100 && !seen[n]) { seen[n] = 1; weeks.push(n); } });
+  weeks.sort(function(a, b) { return a - b; });
+  var pid = str_(req.pid);
+  if (pid === 'all') { setSetting_('inactive_week_indices', weeks.length ? weeks.join(',') : '0'); return 'Saved.'; }
+  var hit = null; readPeople_().forEach(function(p) { if (p.pid === pid) hit = p; });
+  if (!hit) throw new Error('Unknown person.');
+  partCell_(hit.row, 'inactive_weeks', weeks.join(','));
+  return 'Saved.';
+}
+
+function apiAdminPersonSet_(me, req) {
+  needAdmin_(me);
+  var hit = null; readPeople_().forEach(function(p) { if (p.pid === str_(req.pid)) hit = p; });
+  if (!hit) throw new Error('Unknown person.');
+  if (req.active !== undefined) partCell_(hit.row, 'active', isTrue_(req.active) ? 'TRUE' : 'FALSE');
+  if (req.name !== undefined) {
+    var nm = truncate_(str_(req.name), 30);
+    if (nm.length < 2) throw new Error('Enter a name.');
+    if (readPeople_().some(function(p) { return p.pid !== hit.pid && p.name.toLowerCase() === nm.toLowerCase(); })) throw new Error('Someone already has that name.');
+    partCell_(hit.row, 'display_name', nm);
+  }
+  if (req.phone !== undefined) { var ph = str_(req.phone) ? normalizePhone_(req.phone) : ''; if (str_(req.phone) && !ph) throw new Error('That phone number does not look right.'); partCell_(hit.row, 'phone', ph.replace('+', '')); }
+  if (req.initials !== undefined) partCell_(hit.row, 'initials', truncate_(str_(req.initials), 3).toUpperCase());
+  return 'Saved.';
+}
+
+// A new person: next id, a personal key and link ready to text them.
+function apiAdminPersonAdd_(me, req) {
+  needAdmin_(me);
+  var name = truncate_(str_(req.name), 30);
+  if (name.length < 2) throw new Error('Enter a name.');
+  var people = readPeople_();
+  if (people.some(function(p) { return p.name.toLowerCase() === name.toLowerCase(); })) throw new Error('Someone already has that name.');
+  var ph = str_(req.phone) ? normalizePhone_(req.phone) : '';
+  if (str_(req.phone) && !ph) throw new Error('That phone number does not look right.');
+  var max = 0; people.forEach(function(p) { var n = parseInt(String(p.pid).replace(/\D/g, ''), 10); if (n > max) max = n; });
+  var pid = 'p' + ('00' + (max + 1)).slice(-3), key = Utilities.getUuid().replace(/-/g, '').substring(0, 16);
+  var tz = readSettings_().timezone || 'America/New_York';
+  ensureParticipantCols_();
+  appendRows_(TAB.PARTICIPANTS, [{ participant_id: pid, display_name: name, active: 'TRUE', source_identifier: ph ? 'SMS only' : 'App only', date_added: todayIso_(tz),
+    phone: ph.replace('+', ''), inactive_weeks: '', app_key: key, app_link: partLink_({ settings: readSettings_() }, key), initials: truncate_(str_(req.initials) || name.replace(/[^A-Za-z]/g, '').substring(0, 2), 3).toUpperCase() }]);
+  return 'Added ' + name + '. Their link is ready under Share the app.';
+}
+
+// Admin: change the words of someone's post, quietly (no "edited" mark, no alert).
+function apiAdminEditPost_(me, req) {
+  needAdmin_(me);
+  var id = str_(req.id), text = truncate_(str_(req.text), 1000), hit = null;
+  if (!text) throw new Error('A post cannot be empty.');
+  readTable_(TAB.EVENTS).forEach(function(e) { if (e.event_id === id && e.type === 'post') hit = e; });
+  if (!hit) throw new Error('That post was not found.');
+  hit.body = text;
+  updateRow_(TAB.EVENTS, hit._row, hit);
+  return '';
+}
+
 // ---------- admin: usage report ----------
 // For each person: when they last used the app, how often (days in the last 7 / 30, sessions since tracking began),
 // what they log through (app, WHOOP, text), and a flag when they used the app but have since gone back to texting.
@@ -1312,7 +1435,7 @@ function buildUsage_(ctx) {
   ctx.workouts.forEach(function(w) {
     var s = str_(w.source).toLowerCase(), pid = w.participant_id;
     var o = src[pid] = src[pid] || { app: 0, whoop: 0, text: 0, lastText: '', lastAppLog: '' };
-    if (s === 'app') { o.app++; add(pid, w.created_at); if (w._date > o.lastAppLog) o.lastAppLog = w._date; }
+    if (s === 'app') { o.app++; if (!(str_(w.entered_by) && str_(w.entered_by) !== str_(pid))) add(pid, w.created_at); if (w._date > o.lastAppLog) o.lastAppLog = w._date; }
     else if (s === 'whoop') o.whoop++;
     else if (s === 'sms') { o.text++; if (w._date > o.lastText) o.lastText = w._date; }
   });
@@ -1387,7 +1510,7 @@ function actBump_(ctx, pid, ts) {
   if (!a[pid] || Date.parse(ts) > Date.parse(a[pid])) a[pid] = ts;
 }
 function seenAll_(ctx) {
-  if (ctx) ctx.workouts.forEach(function(w) { if (str_(w.source).toLowerCase() === 'app') actBump_(ctx, w.participant_id, w.created_at); });
+  if (ctx) ctx.workouts.forEach(function(w) { if (str_(w.source).toLowerCase() === 'app' && !(str_(w.entered_by) && str_(w.entered_by) !== str_(w.participant_id))) actBump_(ctx, w.participant_id, w.created_at); });
   var all = PropertiesService.getScriptProperties().getProperties(), out = {};
   Object.keys((ctx && ctx._act) || {}).forEach(function(pid) { out[pid] = ctx._act[pid]; });
   Object.keys(all).forEach(function(k) {
@@ -1417,6 +1540,77 @@ function apiUpdateHide_(me, req) {
   return '';
 }
 
+// ---------- custom pots ----------
+// A group of guys going in together: each who joins owes the entry amount (like a fine, paid through Deposit);
+// the admin settles it by choosing the winner(s) and the final total, which is split between them.
+function cpotRows_() {
+  return readTable_(TAB.CPOTS).filter(function(r) { return str_(r.status) !== 'cancelled'; }).map(function(r) {
+    var members = csv_(r.members), joined = csv_(r.joined);
+    return { id: str_(r.pot_id), name: str_(r.name), description: str_(r.description), entry: num_(r.entry, 0), status: str_(r.status) || 'open', createdBy: str_(r.created_by), createdAt: str_(r.created_at),
+      members: members, joined: members.map(function(m, i) { return joined[i] || str_(r.created_at); }), winners: csv_(r.winners), end: r.end_amount === '' ? null : num_(r.end_amount, 0),
+      by: str_(r.settled_by), at: str_(r.settled_at), _row: r._row, _raw: r };
+  });
+}
+function cpotFind_(id) { var hit = null; cpotRows_().forEach(function(p) { if (p.id === id) hit = p; }); return hit; }
+function cpotSave_(pot, members, joined, extra) {
+  var r = pot._raw; r.members = members.join(','); r.joined = joined.join(',');
+  Object.keys(extra || {}).forEach(function(k) { r[k] = extra[k]; });
+  updateRow_(TAB.CPOTS, pot._row, r);
+}
+
+function apiPotCreate_(me, req, ctx) {
+  var name = truncate_(str_(req.name), 40), desc = truncate_(str_(req.description), 300), entry = round2_(num_(req.entry, NaN));
+  if (name.length < 3) throw new Error('Give the pot a name.');
+  if (isNaN(entry) || entry < 1 || entry > 1000) throw new Error('Set the entry amount, $1 to $1,000.');
+  var id = /^cpot_[A-Za-z0-9]{8,30}$/.test(str_(req.id)) && !cpotFind_(str_(req.id)) ? str_(req.id) : 'cpot_' + shortId_(), now = nowIso_();
+  appendRows_(TAB.CPOTS, [{ pot_id: id, created_at: now, created_by: me.pid, name: name, description: desc, entry: String(entry), status: 'open', members: me.pid, joined: now, winners: '', end_amount: '', settled_by: '', settled_at: '' }]);
+  appendRows_(TAB.EVENTS, [{ event_id: 'custompot_' + id, created_at: now, type: 'custompot', participant_id: me.pid, week: id, title: me.name + ' started a pot: ' + name, body: (desc ? desc + ' ' : '') + 'Entry ' + money_(entry) + '.' }]);
+  try { pushToPeople_(pushEveryone_(ctx), 'updates', 'New pot', me.name + ' started "' + name + '" (' + money_(entry) + ' to get in).', me.pid); } catch (pe) { Logger.log('push pot: ' + pe.message); }
+  return 'Pot started. You are in.';
+}
+function apiPotJoin_(me, req, ctx) {
+  var pot = cpotFind_(str_(req.id));
+  if (!pot) throw new Error('That pot was not found.');
+  if (pot.status !== 'open') throw new Error('That pot is already settled.');
+  if (pot.members.indexOf(me.pid) !== -1) return 'You are already in.';
+  cpotSave_(pot, pot.members.concat([me.pid]), pot.joined.concat([nowIso_()]), {});
+  return 'You are in. Your ' + money_(pot.entry) + ' entry shows as owed until you deposit it.';
+}
+function apiPotLeave_(me, req, ctx) {
+  var pot = cpotFind_(str_(req.id));
+  if (!pot) throw new Error('That pot was not found.');
+  if (pot.status !== 'open') throw new Error('That pot is already settled.');
+  var i = pot.members.indexOf(me.pid);
+  if (i === -1) return '';
+  var m = pot.members.slice(), j = pot.joined.slice(); m.splice(i, 1); j.splice(i, 1);
+  cpotSave_(pot, m, j, {});
+  return 'You are out.';
+}
+// Admin: pick the winner(s) and the final total (default: everyone's entries). Can be run again to change it.
+function apiPotSettle_(me, req, ctx) {
+  if (!isAdmin_(me, ctx.settings)) throw new Error('Only the admin can settle pots.');
+  var pot = cpotFind_(str_(req.id));
+  if (!pot) throw new Error('That pot was not found.');
+  var winners = csv_(req.winners).filter(function(w) { return pot.members.indexOf(w) !== -1; });
+  if (!winners.length) throw new Error('Pick at least one winner from the people in the pot.');
+  var total = req.total === undefined || str_(req.total) === '' ? round2_(pot.entry * pot.members.length) : round2_(num_(req.total, NaN));
+  if (isNaN(total) || total < 0 || total > 100000) throw new Error('Enter the total to pay out.');
+  var again = pot.status === 'settled', each = round2_(total / winners.length), now = nowIso_();
+  cpotSave_(pot, pot.members, pot.joined, { status: 'settled', winners: winners.join(','), end_amount: String(total), settled_by: me.pid, settled_at: now });
+  var names = winners.map(function(w) { return (ctx.byPid[w] || { name: w }).name; }).join(', ');
+  var txt = (again ? 'Updated' : 'Settled') + ' ' + pot.name + ': ' + money_(total) + ' to ' + names + (winners.length > 1 ? ' (' + money_(each) + ' each)' : '') + '.';
+  appendRows_(TAB.EVENTS, [{ event_id: 'settle_' + pot.id + '_' + Date.now(), created_at: now, type: 'settle', participant_id: me.pid, week: '', title: me.name + (again ? ' updated' : ' settled') + ' the ' + pot.name + ' pot', body: txt }]);
+  appendRows_(TAB.COMMENTS, [{ comment_id: 'c_' + shortId_(), target_id: pot.id, participant_id: me.pid, created_at: now, text: txt }]);
+  return 'Pot settled.';
+}
+function apiPotCancel_(me, req, ctx) {
+  if (!isAdmin_(me, ctx.settings)) throw new Error('Only the admin can cancel a pot.');
+  var pot = cpotFind_(str_(req.id));
+  if (!pot) throw new Error('That pot was not found.');
+  cpotSave_(pot, pot.members, pot.joined, { status: 'cancelled' });
+  return 'Pot cancelled. Nobody owes an entry for it any more.';
+}
+
 // ---------- photos on workout posts ----------
 // Files go in a Drive folder ("BC Dads WAG photos", shared view-only by link so the app can show them).
 // One row per photo in the Photos tab. Up to 4 per post. Only the post's owner adds; the owner or the admin deletes.
@@ -1432,9 +1626,12 @@ function setupPhotos() { Logger.log('Photos are ready. Folder: ' + photoFolder_(
 
 function apiPhotoAdd_(me, req, ctx) {
   var target = truncate_(str_(req.target), 120);
-  var isPot = /^pot_\d{1,3}$/.test(target);   // anyone can add photos to a pot's card
-  var own = isPot ? null : pushOwnerOf_(ctx, target);
-  if (!isPot && (!own || (own.what !== 'workout' && own.what !== 'userpost') || own.pid !== me.pid)) throw new Error('You can add photos to your own posts and workouts.');
+  var isPot = /^(pot_\d{1,3}|cpot_[A-Za-z0-9]{4,30})$/.test(target);   // anyone can add photos to a pot's card
+  var isBet = /^sb_[A-Za-z0-9]{4,40}$/.test(target), betOk = false;       // the person who proposed a bet can add photos to it
+  if (isBet) readTable_(TAB.BETS).forEach(function(b) { if (b.bet_id === target && b.proposer === me.pid) betOk = true; });
+  var own = isPot || isBet ? null : pushOwnerOf_(ctx, target);
+  if (isBet && !betOk) throw new Error('Only the person who proposed the bet can add photos to it.');
+  if (!isPot && !isBet && (!own || (own.what !== 'workout' && own.what !== 'userpost') || own.pid !== me.pid)) throw new Error('You can add photos to your own posts and workouts.');
   var max = isPot ? 8 : PHOTO_MAX;
   var have = readTable_(TAB.PHOTOS).filter(function(x) { return x.target_id === target; }).length;
   if (have >= max) throw new Error('That already has ' + max + ' photos.');
@@ -1547,22 +1744,25 @@ function apiDeleteComment_(me, req) {
 function apiEditWorkout_(me, req, ctx) {
   var id = str_(req.id);
   var hit = null;
+  var admin = isAdmin_(me, ctx.settings);
   readTable_(TAB.WORKOUTS).forEach(function(w) { if (w.workout_id === id) hit = w; });
-  if (!hit || hit.participant_id !== me.pid || str_(hit.status).toLowerCase() === 'deleted') throw new Error('You can only edit your own workouts.');
-  if (weekOf_(isoOf_(hit.workout_date, ctx.tz), ctx.startIso) !== ctx.currentWeek) throw new Error('Past weeks are locked.');
+  if (!hit || str_(hit.status).toLowerCase() === 'deleted') throw new Error('You can only edit your own workouts.');
+  var others = hit.participant_id !== me.pid;
+  if (others && !admin) throw new Error('You can only edit your own workouts.');
+  if (!admin && weekOf_(isoOf_(hit.workout_date, ctx.tz), ctx.startIso) !== ctx.currentWeek) throw new Error('Past weeks are locked.');
   var src = str_(hit.source).toLowerCase();
-  if (src !== 'app' && src !== 'whoop') throw new Error('That workout cannot be edited.');
+  if (src !== 'app' && src !== 'whoop' && !admin) throw new Error('That workout cannot be edited.');
   hit.note = truncate_(str_(req.note), 500);
-  if (src === 'app') {
+  if (src !== 'whoop') {
     var minutes = Math.round(num_(req.minutes, 0));
     if (minutes < 1 || minutes > 600) throw new Error('Enter how many minutes you worked out.');
     hit.duration_minutes = String(minutes);
     hit.activity = truncate_(str_(req.type) || 'Workout', 30);
     hit.effort = truncate_(str_(req.effort), 20);
   }
-  hit.edited_at = nowIso_();
+  if (!(admin && others)) hit.edited_at = nowIso_();   // an admin's edits to someone else's workout leave no "edited" mark
   updateRow_(TAB.WORKOUTS, hit._row, hit);
-  return 'Workout updated.';
+  return admin && others ? 'Updated.' : 'Workout updated.';
 }
 
 function apiSettle_(me, req, ctx) {
@@ -1697,7 +1897,7 @@ function computeBank_(ctx) {
   var potRows = {};
   readTable_(TAB.POTS).forEach(function(p) { potRows[parseInt(p.week, 10)] = p; });
   var acct = {};
-  ctx.people.forEach(function(p) { if (p.active) acct[p.pid] = { pid: p.pid, won: 0, fines: 0, paid: 0, side: 0, open: 0, openCount: 0 }; });
+  ctx.people.forEach(function(p) { if (p.active) acct[p.pid] = { pid: p.pid, won: 0, fines: 0, entries: 0, paid: 0, side: 0, open: 0, openCount: 0 }; });
 
   var pots = [], fineRows = {};
   for (var wk = ctx.currentWeek - 1; wk >= ctx.bankStartWeek; wk--) {
@@ -1706,7 +1906,7 @@ function computeBank_(ctx) {
     w.buying.forEach(function(b) {
       if (!acct[b.pid]) return;
       acct[b.pid].fines += b.amount;
-      (fineRows[b.pid] = fineRows[b.pid] || []).push({ week: wk, amount: b.amount });
+      (fineRows[b.pid] = fineRows[b.pid] || []).push({ key: 'w' + wk, date: Date.parse(w.end + 'T12:00:00Z') || 0, amount: b.amount });
     });
     if (w.betTotal <= 0) continue;
     var saved = potRows[wk];
@@ -1751,9 +1951,23 @@ function computeBank_(ctx) {
     });
   });
 
+  // Custom pots: each member owes the entry; winners of a settled pot split the total.
+  var cpots = cpotRows_();
+  cpots.forEach(function(cp) {
+    cp.members.forEach(function(pid, i) {
+      if (!acct[pid]) return;
+      acct[pid].entries = round2_(acct[pid].entries + cp.entry);
+      (fineRows[pid] = fineRows[pid] || []).push({ key: 'c' + cp.id, date: Date.parse(cp.joined[i]) || 0, amount: cp.entry });
+    });
+    if (cp.status === 'settled' && cp.winners.length) {
+      var share = round2_((cp.end || 0) / cp.winners.length);
+      cp.winners.forEach(function(w) { if (acct[w]) acct[w].won = round2_(acct[w].won + share); });
+    }
+  });
+
   var accounts = Object.keys(acct).map(function(pid) {
     var a = acct[pid];
-    a.balance = round2_(a.won - a.fines + a.paid + a.side);
+    a.balance = round2_(a.won - a.fines - a.entries + a.paid + a.side);
     a.owes = a.balance < 0 ? round2_(-a.balance) : 0;
     a.pending = round2_(pending.filter(function(x) { return x.pid === pid; }).reduce(function(t, x) { return t + x.amount; }, 0));
     return a;
@@ -1763,15 +1977,15 @@ function computeBank_(ctx) {
   var alloc = {};
   accounts.forEach(function(a) {
     var left = a.paid; alloc[a.pid] = {};
-    (fineRows[a.pid] || []).sort(function(x, y) { return x.week - y.week; }).forEach(function(f) {
-      var take = Math.max(0, Math.min(left, f.amount)); alloc[a.pid][f.week] = round2_(take); left = round2_(left - take);
+    (fineRows[a.pid] || []).sort(function(x, y) { return x.date - y.date; }).forEach(function(f) {
+      var take = Math.max(0, Math.min(left, f.amount)); alloc[a.pid][f.key] = round2_(take); left = round2_(left - take);
     });
   });
   var potTalk = {}, potPics = {};
-  readTable_(TAB.COMMENTS).forEach(function(c) { if (str_(c.target_id).indexOf('pot_') === 0) (potTalk[c.target_id] = potTalk[c.target_id] || []).push({ id: c.comment_id, pid: c.participant_id, text: c.text, ts: c.created_at }); });
-  readTable_(TAB.PHOTOS).forEach(function(x) { if (str_(x.target_id).indexOf('pot_') === 0) (potPics[x.target_id] = potPics[x.target_id] || []).push({ id: x.photo_id, fileId: x.file_id, pid: x.participant_id, ts: x.created_at }); });
+  readTable_(TAB.COMMENTS).forEach(function(c) { if (str_(c.target_id).indexOf('pot_') === 0 || str_(c.target_id).indexOf('cpot_') === 0) (potTalk[c.target_id] = potTalk[c.target_id] || []).push({ id: c.comment_id, pid: c.participant_id, text: c.text, ts: c.created_at }); });
+  readTable_(TAB.PHOTOS).forEach(function(x) { if (str_(x.target_id).indexOf('pot_') === 0 || str_(x.target_id).indexOf('cpot_') === 0) (potPics[x.target_id] = potPics[x.target_id] || []).push({ id: x.photo_id, fileId: x.file_id, pid: x.participant_id, ts: x.created_at }); });
   pots.forEach(function(pt) {
-    pt.dues = pt.dues.map(function(d) { var paid = alloc[d.pid] && alloc[d.pid][pt.week] || 0; return { pid: d.pid, amount: d.amount, paid: paid, left: round2_(d.amount - paid) }; });
+    pt.dues = pt.dues.map(function(d) { var paid = alloc[d.pid] && alloc[d.pid]['w' + pt.week] || 0; return { pid: d.pid, amount: d.amount, paid: paid, left: round2_(d.amount - paid) }; });
     pt.paid = round2_(pt.dues.reduce(function(t, d) { return t + d.paid; }, 0));
     pt.outstanding = round2_(pt.dues.reduce(function(t, d) { return t + d.left; }, 0));
     pt.comments = (potTalk[pt.id] || []).sort(function(a, b) { return String(a.ts).localeCompare(String(b.ts)); });
@@ -1780,9 +1994,17 @@ function computeBank_(ctx) {
   var openBets = accounts.filter(function(a) { return a.open > 0; }).map(function(a) { return { pid: a.pid, amount: a.open, count: a.openCount }; })
     .sort(function(a, b) { return b.amount - a.amount; });
   accounts.sort(function(a, b) { return b.balance - a.balance || ctx.byPid[a.pid].name.localeCompare(ctx.byPid[b.pid].name); });
+  var cpotOut = cpots.map(function(cp) {
+    var dues = cp.members.filter(function(pid) { return acct[pid]; }).map(function(pid) { var paid = alloc[pid] && alloc[pid]['c' + cp.id] || 0; return { pid: pid, amount: cp.entry, paid: paid, left: round2_(cp.entry - paid) }; });
+    var each = cp.status === 'settled' && cp.winners.length ? round2_((cp.end || 0) / cp.winners.length) : 0;
+    return { id: cp.id, custom: true, label: cp.name, description: cp.description, entry: cp.entry, createdBy: cp.createdBy, createdAt: cp.createdAt, settled: cp.status === 'settled', members: cp.members, winners: cp.winners,
+      start: round2_(cp.entry * cp.members.length), end: cp.end, each: each, by: cp.by, at: cp.at, dues: dues,
+      paid: round2_(dues.reduce(function(t, d) { return t + d.paid; }, 0)), outstanding: round2_(dues.reduce(function(t, d) { return t + d.left; }, 0)),
+      comments: (potTalk[cp.id] || []).sort(function(a, b) { return String(a.ts).localeCompare(String(b.ts)); }), photos: (potPics[cp.id] || []).sort(function(a, b) { return String(a.ts).localeCompare(String(b.ts)); }) };
+  }).sort(function(a, b) { return a.settled - b.settled || String(b.createdAt).localeCompare(String(a.createdAt)); });
   var adm = ctx.people.filter(function(p) { return isAdmin_(p, ctx.settings); })[0];
   return { startWeek: ctx.bankStartWeek, bankName: str_(ctx.settings.bank_name), venmo: str_(ctx.settings.venmo_user) || 'BC-Dads-WAG', adminName: adm ? adm.name : 'the admin',
-    pots: pots, accounts: accounts, openBets: openBets, pending: pending, log: log.slice(0, 40) };
+    pots: pots, customPots: cpotOut, accounts: accounts, openBets: openBets, pending: pending, log: log.slice(0, 40) };
 }
 
 function computeChallenges_(me, ctx) {
@@ -1876,6 +2098,7 @@ function whoopDetail_(w) {
 // Builds feed items. onlyPid = one person's posts (for profiles); limit = how many to return.
 function feedItems_(me, ctx, onlyPid, limit) {
   var showAll = isTrue_(ctx.settings.feed_show_all_whoop);
+  var adminMe = isAdmin_(me, ctx.settings);
 
   // Matching: a workout logged in the app and a WHOOP workout from the same person on the same day (similar length) are
   // the same session, so they merge into ONE card: the logged workout (its note, effort, photos) plus the WHOOP numbers
@@ -1948,7 +2171,7 @@ function feedItems_(me, ctx, onlyPid, limit) {
       effort: str_(w.effort), note: str_(w.note), ok: !!w._ok, editedAt: str_(w.edited_at),
       detail: detailRow ? whoopDetail_(detailRow) : null,
       canDelete: src === 'app' && mineThisWeek,
-      canEdit: mineThisWeek ? (src === 'app' ? 'full' : (src === 'whoop' ? 'note' : '')) : ''
+      canEdit: mineThisWeek || adminMe ? (src === 'whoop' ? 'note' : (src === 'app' || adminMe ? 'full' : '')) : ''
     });
   });
   readTable_(TAB.EVENTS).forEach(function(e) {
@@ -1956,7 +2179,7 @@ function feedItems_(me, ctx, onlyPid, limit) {
     if (str_(e.deleted)) return;
     if (onlyPid && e.participant_id !== onlyPid) return;
     items.push({ id: e.event_id, kind: 'e', type: e.type, pid: e.participant_id, ts: e.created_at, title: e.title, body: e.body,
-                 toPid: e.type === 'wall' ? str_(e.week) : '', badgeId: e.type.indexOf('badge_') === 0 ? str_(e.week) : '' });
+                 toPid: e.type === 'wall' ? str_(e.week) : '', badgeId: e.type.indexOf('badge_') === 0 ? str_(e.week) : '', potId: e.type === 'custompot' ? str_(e.week) : '' });
   });
   if (!onlyPid) {
     // Side bets: an open bet shows as a card (never to the people it is hidden from); a finished one shows its result to everyone.
@@ -2381,6 +2604,19 @@ function sbTeamValue_(ctx, pids, bet) {
   if (bet.scoring === 'best') return Math.max.apply(null, vals);
   return Math.round(sum / vals.length * 100) / 100;
 }
+// The most a side could still reach if every remaining day went perfectly (per person per day: 1 workout day, 360 minutes, 21 strain).
+var SB_DAY_CAP = { workouts: 1, minutes: 360, strain: 21 };
+function sbTeamPotential_(ctx, pids, bet, remaining) {
+  var vals = pids.map(function(p) {
+    var v = sbValue_(ctx, p, bet);
+    return bet.stat === 'beststrain' ? Math.max(v, 21) : v + (SB_DAY_CAP[bet.stat] || 0) * remaining;
+  });
+  if (!vals.length) return 0;
+  var sum = vals.reduce(function(a, b) { return a + b; }, 0);
+  if (pids.length === 1 || bet.scoring === 'total') return sum;
+  if (bet.scoring === 'best') return Math.max.apply(null, vals);
+  return sum / vals.length;
+}
 function sbAmt_(v, stat) { return sbFmt_(v, stat) + ' ' + (stat === 'workouts' && v === 1 ? 'workout' : SB_STATS[stat].unit); }
 function sbFmt_(v, stat) {
   if (stat === 'strain' || stat === 'beststrain') return (Math.round(v * 10) / 10).toFixed(1);
@@ -2433,8 +2669,20 @@ function sbEvaluate_(ctx, bet, nowMs) {
   }
 
   if (bet.type === 'h2h') {
-    if (!ended) return { winner: '', at: 0, note: '' };
     var va = sbTeamValue_(ctx, A, bet), vb = sbTeamValue_(ctx, B, bet);
+    if (!ended) {
+      // Closes as soon as the result is out of reach: one side leads by more than the other could possibly add in the days left.
+      var remaining = bet.period === '24h' ? Math.ceil((pe - nowMs) / 86400000) : dayNum_(bet.date_to) - dayNum_(ctx.today) + 1;
+      if (remaining >= 1 && va !== vb) {
+        var pa = sbTeamPotential_(ctx, A, bet, remaining), pb = sbTeamPotential_(ctx, B, bet, remaining);
+        var lead = va > vb ? 'a' : 'b';
+        if (lead === 'a' ? va > pb : vb > pa) {
+          return { winner: lead, at: nowMs, note: namesJoin_(ctx, A) + ' ' + sbFmt_(va, bet.stat) + ', ' + namesJoin_(ctx, B) + ' ' + sbFmt_(vb, bet.stat) + '. ' +
+            (lead === 'a' ? namesJoin_(ctx, B) : namesJoin_(ctx, A)) + ' cannot catch up in the ' + remaining + (remaining === 1 ? ' day' : ' days') + ' left.' };
+        }
+      }
+      return { winner: '', at: 0, note: '' };
+    }
     var note = namesJoin_(ctx, A) + ' ' + sbFmt_(va, bet.stat) + ', ' + namesJoin_(ctx, B) + ' ' + sbFmt_(vb, bet.stat) + '.';
     if (va === vb) return { winner: 'void', at: pe, note: 'Tie. ' + note };
     return { winner: va > vb ? 'a' : 'b', at: pe, note: note };
@@ -2595,7 +2843,8 @@ function apiBetPropose_(me, req, ctx) {
   var amount = round2_(num_(req.amount, NaN));
   if (isNaN(amount) || amount < 1 || amount > 1000) throw new Error('Enter your bet, $1 to $1,000.');
 
-  var bet = { bet_id: 'sb_' + shortId_(), created_at: nowIso_(), proposer: me.pid, type: type, status: 'open',
+  var newId = /^sb_[A-Za-z0-9]{8,40}$/.test(str_(req.id)) && !sbLoad_().bets.some(function(b) { return b.bet_id === str_(req.id); }) ? str_(req.id) : 'sb_' + shortId_();
+  var bet = { bet_id: newId, created_at: nowIso_(), proposer: me.pid, type: type, status: 'open',
     subjects_a: '', subjects_b: '', stat: '', line: '', question: '', n: '', scoring: '', period: '', period_start: '', period_end: '',
     date_from: '', date_to: '', week: '', close_at: '', hidden: '', prompt: '', label_a: '', label_b: '', stake: '',
     winner: '', settled_at: '', decided_at: '', settled_by: '', result_title: '', result_body: '' };
@@ -2718,7 +2967,7 @@ function apiBetPlace_(me, req, ctx) {
     if (m.openSide === side) throw new Error('There is still ' + money_(m.openAmount) + ' on "' + (side === 'a' ? bet.label_a : bet.label_b) + '" waiting for a taker. Someone has to take the other side first.');
     throw new Error('You cannot bet on that one.');
   }
-  if (bet.type !== 'custom' && sbEvaluate_(ctx, bet, nowMs).winner) throw new Error('That one was just decided.');
+  if (bet.type !== 'custom' && sbEvaluate_(ctx, bet, nowMs).winner) throw new Error('That one is already decided.');
   var amount = round2_(num_(req.amount, NaN));
   if (isNaN(amount) || amount < 1 || amount > 1000) throw new Error('Enter your bet, $1 to $1,000.');
   appendRows_(TAB.WAGERS, [{ wager_id: 'w_' + shortId_(), bet_id: bet.bet_id, participant_id: me.pid, side: side, amount: String(amount), created_at: nowIso_(), status: 'in', payout: '', matched: '' }]);
@@ -2749,6 +2998,8 @@ function apiBetResolve_(me, req, ctx) {
 // The side bets this person is allowed to see, newest first: everything still open, plus the last 15 finished.
 function sbState_(me, ctx, data) {
   var nowMs = Date.now(), out = [], done = 0;
+  var betPics = {};
+  readTable_(TAB.PHOTOS).forEach(function(x) { if (str_(x.target_id).indexOf('sb_') === 0) (betPics[x.target_id] = betPics[x.target_id] || []).push({ id: x.photo_id, fileId: x.file_id, pid: x.participant_id, ts: x.created_at }); });
   var bets = data.bets.slice().sort(function(a, b) { return String(b.created_at).localeCompare(String(a.created_at)) || b._row - a._row; });
   bets.forEach(function(bet) {
     var hidden = csv_(bet.hidden);
@@ -2789,7 +3040,7 @@ function sbState_(me, ctx, data) {
       createdAt: bet.created_at, closeAt: bet.close_at, closeText: timeLabel_(closeMs, ctx.tz),
       endText: bet.type === 'custom' ? '' : timeLabel_(Date.parse(bet.period_end), ctx.tz),
       phase: open ? (nowMs < closeMs ? 'open' : 'waiting') : bet.status,
-      hiddenFrom: hidden, legacy: legacy,
+      hiddenFrom: hidden, legacy: legacy, photos: betPics[bet.bet_id] || [],
       sides: sides, pairs: m.pairs, matched: m.matchedTotal,
       openSide: open ? m.openSide : '', openAmount: open ? m.openAmount : 0,
       mine: mine, canBet: sbCanBet_(bet, me.pid, wagers, nowMs, open ? m : null), progress: progress,

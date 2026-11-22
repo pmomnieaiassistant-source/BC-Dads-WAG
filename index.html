@@ -140,7 +140,7 @@ nav.tabs button.on{color:var(--lime)}
 .fabm button{min-height:48px;padding:0 18px 0 14px;border-radius:999px;border:1px solid var(--line2);background:var(--card);color:var(--text);font-size:15px;font-weight:800;display:flex;align-items:center;gap:10px;box-shadow:0 10px 30px rgba(0,0,0,.45);
   opacity:0;transform:translateY(16px) scale(.96);transition:opacity .18s ease,transform .22s cubic-bezier(.2,.9,.3,1.2)}
 .fabm button svg{color:var(--lime)}
-.fabon .fabm{pointer-events:auto}.fabon .fabm button{opacity:1;transform:none}.fabon .fabm button:nth-child(2){transition-delay:.04s}.fabon .fabm button:nth-child(1){transition-delay:.08s}
+.fabon .fabm{pointer-events:auto}.fabon .fabm button{opacity:1;transform:none}.fabon .fabm button:nth-child(3){transition-delay:.04s}.fabon .fabm button:nth-child(2){transition-delay:.08s}.fabon .fabm button:nth-child(1){transition-delay:.12s}
 @media (prefers-reduced-motion:reduce){.fab svg,.fabm button,.fabbg{transition:none}}
 .cmp{display:flex;gap:10px;align-items:center}.cmp img{width:84px;height:84px;object-fit:cover;border-radius:12px;display:block}
 .sheet{position:fixed;inset:0;z-index:10;background:var(--bg);display:flex;flex-direction:column;max-width:560px;margin:0 auto}
@@ -205,6 +205,7 @@ h2.h{font-size:18px}
 </div>
 <div class="fabbg" data-a="fabClose"></div>
 <div class="fabm" id="fabMenu" aria-hidden="true">
+  <button data-a="openPot"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/></svg>Start a pot</button>
   <button data-a="fabBet"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M14.5 9.5c-.5-1-1.5-1.5-2.5-1.5-1.5 0-2.5.8-2.5 2s1 1.7 2.5 2 2.5.8 2.5 2-1 2-2.5 2c-1 0-2-.5-2.5-1.5M12 6.5v1.5M12 16v1.5"/></svg>Propose side bet</button>
   <button data-a="openPost"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>Post</button>
   <button data-a="openLog"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 7v10M17.5 7v10M3.5 9.5v5M20.5 9.5v5M6.5 12h11"/></svg>Log workout</button>
@@ -227,7 +228,7 @@ h2.h{font-size:18px}
   // The key stays in the address on purpose: "Add to Home Screen" saves the address, key included.
 
   var TYPES = ['Run', 'Strength', 'Bike', 'Walk', 'Golf', 'Swim', 'Sports', 'Other'];
-  function freshLog() { return { date: '', type: 'Strength', minutes: 40, effort: 'Hard', note: '', editId: '', noteOnly: false }; }
+  function freshLog() { return { date: '', type: 'Strength', minutes: 40, effort: 'Hard', note: '', editId: '', noteOnly: false, forPid: '', earlier: false }; }
 
   var S = null;                       // latest state from the server
   var ui = { fb: '', pick: null, news: [], newsDone: false, tab: 'feed', filter: 'all', open: {}, stack: [], busy: false, lastPaid: null, profiles: {}, scrollY: 0, log: freshLog(), bet: null, betPick: null };
@@ -443,6 +444,12 @@ h2.h{font-size:18px}
     return h;
   }
   function eventCard(it) {
+    if (it.type === 'custompot') {
+      var cp = potById(it.potId);
+      if (cp) return '<article class="col" style="gap:8px" id="p-' + esc(it.id) + '"><div class="ev bet"><span class="ic">' + IC.coin + '</span><div class="col grow" style="gap:6px"><h3>' + esc(it.title) + '</h3>' + (cp.description ? '<p>' + esc(cp.description) + '</p>' : '') +
+        '<span class="openline">Entry ' + money(cp.entry) + ' \u00b7 ' + cp.members.length + ' in: ' + esc(cp.members.map(person).join(', ')) + (cp.settled ? ' \u00b7 settled' : '') + '</span>' +
+        '<div class="row"><button class="pill' + (cp.settled ? '' : ' lime') + '" data-a="potOpen" data-id="' + esc(cp.id) + '">' + (cp.settled ? 'See the pot' : 'Open pot') + '</button></div><span class="sub" style="font-size:12px">' + esc(ago(it.ts)) + '</span>' + actions(it) + '</div></div></article>';
+    }
     if (it.type === 'bet') {
       var bt = betOf(it.betId);
       if (bt) return '<article class="col" style="gap:8px" id="p-' + esc(it.id) + '"><div class="ev bet tap" data-a="betOpen" data-id="' + esc(bt.id) + '"><span class="ic">' + IC.coin + '</span><div class="col grow" style="gap:8px">' + betInner(bt) + actions(it) + '</div></div></article>';
@@ -496,7 +503,9 @@ h2.h{font-size:18px}
   function findPhoto(id) {
     var all = S.feed.slice(); for (var k in ui.profiles) all = all.concat(ui.profiles[k].items || []);
     for (var i = 0; i < all.length; i++) { var ps = all[i].photos || []; for (var j = 0; j < ps.length; j++) if (ps[j].id === id) return { ph: ps[j], it: all[i] }; }
-    var pots = (S.bank && S.bank.pots) || [];
+    var bl = S.bets || [];
+    for (var bi = 0; bi < bl.length; bi++) { var bp = bl[bi].photos || []; for (var bj = 0; bj < bp.length; bj++) if (bp[bj].id === id) return { ph: bp[bj], it: { id: bl[bi].id, pid: bp[bj].pid }, bet: bl[bi] }; }
+    var pots = ((S.bank && S.bank.pots) || []).concat((S.bank && S.bank.customPots) || []);
     for (var q = 0; q < pots.length; q++) { var pp = pots[q].photos || []; for (var r = 0; r < pp.length; r++) if (pp[r].id === id) return { ph: pp[r], it: { id: pots[q].id, pid: pp[r].pid }, pot: pots[q] }; }
     return null;
   }
@@ -524,7 +533,8 @@ h2.h{font-size:18px}
     var mine = it.pid === S.me.pid && !it.pending;
     return '<article class="card col" style="gap:14px" id="p-' + esc(it.id) + '"><div class="row">' + avatar(it.pid) +
       '<div class="col grow" style="gap:1px">' + nameBtn(it.pid) + '<span class="sub" style="font-size:12px">' + esc(ago(it.ts)) + '</span></div>' +
-      (mine ? '<button class="link" style="color:var(--dim)" data-a="delPost" data-id="' + esc(it.id) + '">Delete</button>' : '') + '</div>' +
+      '<span style="display:flex;gap:14px">' + (S.me.admin ? '<button class="link" style="color:var(--dim)" data-a="editPost" data-id="' + esc(it.id) + '">Edit</button>' : '') +
+      (mine ? '<button class="link" style="color:var(--dim)" data-a="delPost" data-id="' + esc(it.id) + '">Delete</button>' : '') + '</span></div>' +
       (it.body ? '<p style="color:var(--soft);white-space:pre-wrap">' + mentionHTML(it.body) + '</p>' : '') + photosHTML(it) + actions(it) + '</article>';
   }
   function cards(items, swipe) {
@@ -622,7 +632,7 @@ h2.h{font-size:18px}
   }
   function depositSheet() {
     var D = ui.dep || {}, amt = D.amount !== undefined && D.amount !== '' ? D.amount : (D.left || myAcct().owes || '');
-    return sheetWrap('Deposit', '<p class="sub">' + (D.week ? 'For the Week ' + esc(D.week) + ' pot. ' : '') + 'Pay <b>@' + esc(venmoUser()) + '</b> on Venmo, then tap \u201cI\'ve sent it\u201d so ' + esc(adminName()) + ' can confirm it arrived. It counts, and your alert goes away, once that is done.</p>' +
+    return sheetWrap('Deposit', '<p class="sub">' + (D.note ? 'For the ' + esc(D.note) + ' pot. ' : (D.week ? 'For the Week ' + esc(D.week) + ' pot. ' : '')) + 'Pay <b>@' + esc(venmoUser()) + '</b> on Venmo, then tap \u201cI\'ve sent it\u201d so ' + esc(adminName()) + ' can confirm it arrived. It counts, and your alert goes away, once that is done.</p>' +
       '<div class="col" style="gap:10px"><label class="lab" for="depAmt">Amount</label><div class="field"><b class="sub" style="font-size:20px">$</b><input id="depAmt" type="number" inputmode="decimal" min="0" step="0.01" value="' + esc(amt) + '"></div></div>' +
       '<button class="btn" data-a="depVenmo">Open Venmo</button>' +
       '<p class="sub" style="font-size:12px">Venmo opens with the amount filled in. If the amount does not carry over, type it in there. <button class="link" style="font-size:12px" data-a="depCopy">Copy @' + esc(venmoUser()) + '</button></p>',
@@ -637,31 +647,54 @@ h2.h{font-size:18px}
       : '<b>Payment sent</b><span class="sub">Waiting for ' + esc(adminName()) + ' to confirm your ' + money(a.pending) + '</span>';
     return '<div class="owe"><div class="col grow" style="gap:1px">' + msg + '</div>' + (a.owes > 0 ? '<button class="pill lime" data-a="deposit" data-amt="' + a.owes + '">Deposit</button>' : '') + '</div>';
   }
-  function potById(id) { var l = (S.bank && S.bank.pots) || []; for (var i = 0; i < l.length; i++) if (l[i].id === id) return l[i]; return null; }
+  function potById(id) {
+    var l = ((S.bank && S.bank.pots) || []).concat((S.bank && S.bank.customPots) || []);
+    for (var i = 0; i < l.length; i++) if (l[i].id === id) return l[i];
+    return null;
+  }
   function potLine(p) {
     var due = p.dues || [];
-    return '<div class="row between"><span class="sub">' + (!due.length ? 'Nobody owed a fine' : p.outstanding > 0 ? '<b class="neg">' + money(p.outstanding) + ' still owed</b> \u00b7 ' + money(p.paid || 0) + ' paid in' : '<b class="pos">All paid in</b>') + '</span><button class="pill" data-a="potOpen" data-id="' + p.week + '">Open pot</button></div>';
+    return '<div class="row between"><span class="sub">' + (!due.length ? (p.custom ? 'Nobody in yet' : 'Nobody owed a fine') : p.outstanding > 0 ? '<b class="neg">' + money(p.outstanding) + ' still owed</b> \u00b7 ' + money(p.paid || 0) + ' paid in' : '<b class="pos">All paid in</b>') + '</span><button class="pill" data-a="potOpen" data-id="' + esc(p.custom ? p.id : p.week) + '">Open pot</button></div>';
   }
-  // One pot as its own page: who owes and who has paid, photos, and a running chat (including new totals when it is resettled).
+  // One pot as its own page (weekly or custom): who owes and who has paid, photos, and a running chat.
   function potSheet(id) {
     var p = potById(id); if (!p) return sheetWrap('Pot', '<div class="empty">That pot is gone.</div>', '');
     p.photos = p.photos || []; p.comments = p.comments || [];
-    var h = '<div class="stats"><div class="stat"><span>Pot total</span><b style="color:var(--gold)">' + money(p.start) + '</b></div><div class="stat"><span>Paid in</span><b class="pos">' + money(p.paid || 0) + '</b></div><div class="stat"><span>Still owed</span><b class="' + (p.outstanding > 0 ? 'neg' : 'pos') + '">' + money(p.outstanding || 0) + '</b></div></div>';
-    h += '<div class="col" style="gap:8px"><span class="lab">Who owes</span>' + ((p.dues || []).length ? '<div class="list">' + p.dues.map(function (d) {
+    var meIn = p.custom && p.members.indexOf(S.me.pid) !== -1, h = '';
+    if (p.custom) h += (p.description ? '<p style="color:var(--soft)">' + esc(p.description) + '</p>' : '') + '<p class="sub">Started by ' + esc(person(p.createdBy)) + ' \u00b7 entry ' + money(p.entry) + ' each</p>';
+    h += '<div class="stats"><div class="stat"><span>Pot total</span><b style="color:var(--gold)">' + money(p.start) + '</b></div><div class="stat"><span>Paid in</span><b class="pos">' + money(p.paid || 0) + '</b></div><div class="stat"><span>Still owed</span><b class="' + (p.outstanding > 0 ? 'neg' : 'pos') + '">' + money(p.outstanding || 0) + '</b></div></div>';
+    if (p.custom && !p.settled) h += meIn ? '<div class="row between"><span class="pos" style="font-weight:800">\u2713 You are in</span><button class="link" style="color:var(--dim)" data-a="potLeave" data-id="' + esc(p.id) + '">Leave</button></div>'
+      : '<button class="btn" data-a="potJoin" data-id="' + esc(p.id) + '">Join for ' + money(p.entry) + '</button>';
+    var note = p.custom ? p.label : '', wk = p.custom ? '' : p.week;
+    h += '<div class="col" style="gap:8px"><span class="lab">' + (p.custom ? 'Who is in' : 'Who owes') + '</span>' + ((p.dues || []).length ? '<div class="list">' + p.dues.map(function (d) {
       return '<div><div class="col grow" style="gap:1px">' + nameBtn(d.pid) + (d.left > 0 && d.paid > 0 ? '<span class="sub" style="font-size:12px">' + money(d.paid) + ' of ' + money(d.amount) + ' paid</span>' : '') + '</div>' +
         (d.left <= 0 ? '<span class="pos" style="font-weight:800">\u2713 Paid ' + money(d.amount) + '</span>'
           : '<b class="neg" style="white-space:nowrap">' + money(d.left) + ' owed</b>' +
-            (d.pid === S.me.pid ? '<button class="pill lime" data-a="deposit" data-amt="' + d.left + '" data-w="' + p.week + '">Deposit</button>' : (S.me.admin ? '<button class="pill" data-a="markPaid" data-id="' + esc(d.pid) + '" data-amt="' + d.left + '" data-w="' + p.week + '">Mark paid</button>' : ''))) + '</div>';
-    }).join('') + '</div>' : '<p class="sub">Nobody owed a fine that week.</p>') + '</div>';
-    if (p.settled) h += '<div class="card col" style="gap:6px"><div class="row between"><b>Settled</b><span class="tag">SETTLED</span></div><div class="row"><b class="sub" style="font-size:20px">' + money(p.start) + '</b><span class="sub">\u2192</span><b style="font-size:24px" class="' + (p.end >= p.start ? 'pos' : 'neg') + '">' + money(p.end) + '</b><b style="margin-left:auto">' + money(p.each) + ' each</b></div><p class="sub">' + esc(p.members.map(person).join(', ') || 'Nobody') + ' \u00b7 settled by ' + esc(person(p.by)) + '</p></div>';
-    else if (p.members.length) h += '<div class="card col" style="gap:6px"><div class="row between"><b>' + esc(p.label) + '</b><span class="tag lime">LIVE</span></div><p class="sub">Betting ' + esc(p.betDates) + ' \u00b7 in the pot: ' + esc(p.members.map(person).join(', ')) + '</p></div>';
-    if (S.me.admin && p.members.length) h += '<div class="col" style="gap:10px"><label class="lab" for="pot-' + p.week + '">' + (p.settled ? 'Still rolling? Update the total' : 'What is left after all the betting?') + '</label><div class="field"><b class="sub" style="font-size:20px">$</b><input id="pot-' + p.week + '" type="number" inputmode="decimal" min="0" placeholder="New total"></div><button class="btn" data-a="settle" data-id="' + p.week + '">' + (p.settled ? 'Save new total' : 'Settle all bets') + '</button></div>';
+            (d.pid === S.me.pid ? '<button class="pill lime" data-a="deposit" data-amt="' + d.left + '" data-w="' + esc(wk) + '" data-n="' + esc(note) + '">Deposit</button>' : (S.me.admin ? '<button class="pill" data-a="markPaid" data-id="' + esc(d.pid) + '" data-amt="' + d.left + '" data-w="' + esc(wk) + '">Mark paid</button>' : ''))) + '</div>';
+    }).join('') + '</div>' : '<p class="sub">' + (p.custom ? 'Nobody has joined yet.' : 'Nobody owed a fine that week.') + '</p>') + '</div>';
+    if (p.settled) h += '<div class="card col" style="gap:6px"><div class="row between"><b>Settled</b><span class="tag">SETTLED</span></div><div class="row"><b class="sub" style="font-size:20px">' + money(p.start) + '</b><span class="sub">\u2192</span><b style="font-size:24px" class="' + (p.end >= p.start ? 'pos' : 'neg') + '">' + money(p.end) + '</b><b style="margin-left:auto">' + money(p.each) + ' each</b></div><p class="sub">' + esc((p.custom ? p.winners : p.members).map(person).join(', ') || 'Nobody') + ' \u00b7 settled by ' + esc(person(p.by)) + '</p></div>';
+    else if (!p.custom && p.members.length) h += '<div class="card col" style="gap:6px"><div class="row between"><b>' + esc(p.label) + '</b><span class="tag lime">LIVE</span></div><p class="sub">Betting ' + esc(p.betDates) + ' \u00b7 in the pot: ' + esc(p.members.map(person).join(', ')) + '</p></div>';
+    if (S.me.admin && !p.custom && p.members.length) h += '<div class="col" style="gap:10px"><label class="lab" for="pot-' + p.week + '">' + (p.settled ? 'Still rolling? Update the total' : 'What is left after all the betting?') + '</label><div class="field"><b class="sub" style="font-size:20px">$</b><input id="pot-' + p.week + '" type="number" inputmode="decimal" min="0" placeholder="New total"></div><button class="btn" data-a="settle" data-id="' + p.week + '">' + (p.settled ? 'Save new total' : 'Settle all bets') + '</button></div>';
+    if (S.me.admin && p.custom && p.members.length) {
+      var W = (ui.potW && ui.potW[p.id]) || (p.settled ? p.winners.slice() : []);
+      h += '<div class="col" style="gap:10px"><span class="lab">' + (p.settled ? 'Change the result' : 'Settle it: who won?') + '</span><div class="opts">' + p.members.map(function (pid) { return '<button class="opt' + (W.indexOf(pid) !== -1 ? ' on' : '') + '" data-a="potWin" data-id="' + esc(pid) + '" data-w="' + esc(p.id) + '" aria-pressed="' + (W.indexOf(pid) !== -1) + '">' + esc(person(pid)) + '</button>'; }).join('') + '</div>' +
+        '<label class="lab" for="cpTotal">Total to pay out (blank = everyone\'s entries, ' + money(p.start) + ')</label><div class="field"><b class="sub" style="font-size:20px">$</b><input id="cpTotal" type="number" inputmode="decimal" min="0" placeholder="' + esc(String(p.start)) + '"></div>' +
+        '<button class="btn" data-a="potSettleC" data-id="' + esc(p.id) + '">' + (p.settled ? 'Save result' : 'Settle the pot') + '</button><button class="link" style="color:var(--dim);text-align:left" data-a="potCancelC" data-id="' + esc(p.id) + '">Cancel this pot</button></div>';
+    }
     h += '<div class="col" style="gap:8px"><div class="row between"><span class="lab">Photos</span><button class="link" style="color:var(--dim)" data-a="photoPick" data-id="' + p.id + '">Add photo</button></div>' + (p.photos.length ? photosHTML(p) : '<p class="sub">Add a photo of the bet, the score, a receipt.</p>') + '</div>';
     h += '<div class="col" style="gap:10px"><span class="lab">Chat</span><div class="cm" style="border-top:0;padding-top:0">' + (p.comments.length ? p.comments.map(function (c) {
       return '<div>' + nameBtn(c.pid) + ' <span style="color:var(--mid)">' + mentionHTML(c.text) + '</span><span class="ct">' + (c.pending ? 'sending' : esc(ago(c.ts))) + '</span>' + (c.pid === S.me.pid && !c.pending ? ' <button class="link" style="color:var(--dim);font-size:12px" data-a="potCDel" data-id="' + esc(c.id) + '">Delete</button>' : '') + '</div>';
     }).join('') : '<p class="sub">Nothing yet. Say who is settling what.</p>') +
       '<div class="row"><input class="txt" id="c-' + p.id + '" placeholder="Comment, or @ someone" maxlength="500" aria-label="Add a comment"><button class="pill lime" data-a="sendC" data-id="' + p.id + '">Post</button></div></div></div>';
     return sheetWrap(p.label, h, '');
+  }
+  function newPotSheet() {
+    var P = ui.npot || {};
+    return sheetWrap('Start a pot', '<p class="sub">A pot a few guys go in on together: a putting contest, a wager between friends. Everyone who joins owes the entry (paid through Deposit). The admin settles it and picks the winner(s). You are in automatically.</p>' +
+      '<div class="col" style="gap:10px"><label class="lab" for="npName">Name</label><input class="txt" id="npName" maxlength="40" placeholder="Saturday putt-off" value="' + esc(P.name || '') + '"></div>' +
+      '<div class="col" style="gap:10px"><label class="lab" for="npDesc">What is it? (optional)</label><textarea class="txt" id="npDesc" rows="3" maxlength="300" placeholder="Closest to the pin wins">' + esc(P.description || '') + '</textarea></div>' +
+      '<div class="col" style="gap:10px"><label class="lab" for="npEntry">Entry per person</label><div class="field"><b class="sub" style="font-size:20px">$</b><input id="npEntry" type="number" inputmode="decimal" min="1" placeholder="10" value="' + esc(P.entry || '') + '"></div></div>',
+      '<button class="btn" data-a="potCreate">Start the pot</button>');
   }
 
   function viewBets() {
@@ -692,15 +725,22 @@ h2.h{font-size:18px}
       }
     });
 
+    var cps = b.customPots || [];
+    h += '<div class="row between" style="margin-top:8px"><h2 class="h">Custom pots</h2><button class="pill lime" data-a="openPot">+ Start a pot</button></div>';
+    if (!cps.length) h += '<p class="sub">Going in on a bet with a few guys? Start a pot. Everyone who joins puts in the entry and the winner takes it.</p>';
+    cps.forEach(function (p) {
+      h += '<article class="card col" style="gap:10px' + (p.settled ? '' : ';border-color:var(--lime)') + '"><div class="row between"><div class="col" style="gap:1px"><b>' + esc(p.label) + '</b><span class="sub">Entry ' + money(p.entry) + ' \u00b7 ' + p.members.length + ' in</span></div><span class="tag' + (p.settled ? '' : ' lime') + '">' + (p.settled ? 'SETTLED' : 'OPEN') + '</span></div>' +
+        (p.description ? '<p class="sub">' + esc(p.description) + '</p>' : '') + '<p class="sub">' + esc(p.members.map(person).join(', ')) + '</p>' + potLine(p) + '</article>';
+    });
     var owed = me.balance < 0 ? -me.balance : 0;
     h += '<h2 class="h" style="margin-top:8px">Your account</h2><section class="card col" style="gap:14px"><div class="row between"><b>' + esc(S.me.name) + '</b><b style="font-size:26px" class="' + (me.balance < 0 ? 'neg' : (me.balance > 0 ? 'pos' : '')) + '">' + money(me.balance) + '</b></div>' +
-      '<div class="stats" style="grid-template-columns:1fr 1fr"><div class="stat"><span>Pots won</span><b class="pos">' + money(me.won) + '</b></div><div class="stat"><span>Fines</span><b class="neg">' + money(me.fines) + '</b></div><div class="stat"><span>Side bets</span><b class="' + (me.side < 0 ? 'neg' : (me.side > 0 ? 'pos' : '')) + '">' + signed(me.side || 0) + '</b></div><div class="stat"><span>Paid in</span><b>' + money(me.paid) + '</b></div></div>' +
+      '<div class="stats" style="grid-template-columns:1fr 1fr"><div class="stat"><span>Pots won</span><b class="pos">' + money(me.won) + '</b></div><div class="stat"><span>Fines</span><b class="neg">' + money(me.fines) + '</b></div>' + (me.entries ? '<div class="stat"><span>Pot entries</span><b class="neg">' + money(me.entries) + '</b></div>' : '') + '<div class="stat"><span>Side bets</span><b class="' + (me.side < 0 ? 'neg' : (me.side > 0 ? 'pos' : '')) + '">' + signed(me.side || 0) + '</b></div><div class="stat"><span>Paid in</span><b>' + money(me.paid) + '</b></div></div>' +
       '<button class="btn' + (owed > 0 ? '' : ' ghost') + '" data-a="deposit" data-amt="' + owed + '">' + (owed > 0 ? 'Deposit ' + money(owed) : 'Make a deposit') + '</button>' +
       (me.pending ? '<p class="sub">' + money(me.pending) + ' sent, waiting for ' + esc(adminName()) + ' to confirm.</p>' : '') + '</section>';
 
     h += '<div class="row between" style="margin-top:8px"><h2 class="h">Everyone\'s balance</h2><span class="sub">Pots - fines   side bets + paid</span></div><div class="list">' +
       b.accounts.map(function (a, i) {
-        return '<div><span class="sub" style="width:20px">' + (i + 1) + '</span><div class="col grow" style="gap:1px">' + nameBtn(a.pid) + '<span class="sub" style="font-size:12px">Won ' + money(a.won) + '   Fines ' + money(a.fines) + (a.side ? '   Bets ' + signed(a.side) : '') + '   Paid ' + money(a.paid) + '</span></div>' +
+        return '<div><span class="sub" style="width:20px">' + (i + 1) + '</span><div class="col grow" style="gap:1px">' + nameBtn(a.pid) + '<span class="sub" style="font-size:12px">Won ' + money(a.won) + '   Fines ' + money(a.fines) + (a.entries ? '   Entries ' + money(a.entries) : '') + (a.side ? '   Bets ' + signed(a.side) : '') + '   Paid ' + money(a.paid) + '</span></div>' +
           '<div class="col" style="align-items:flex-end;gap:0"><b class="num ' + (a.balance < 0 ? 'neg' : (a.balance > 0 ? 'pos' : '')) + '" style="font-size:17px">' + money(a.balance) + '</b>' + (a.balance < 0 ? '<span class="neg" style="font-size:11px;font-weight:800">OWES</span>' : '') +
           (a.owes > 0 && a.pid === S.me.pid ? '<button class="pill lime" style="min-height:30px;margin-top:4px" data-a="deposit" data-amt="' + a.owes + '">Deposit</button>' : (a.owes > 0 && S.me.admin ? '<button class="pill" style="min-height:30px;margin-top:4px" data-a="markPaid" data-id="' + esc(a.pid) + '" data-amt="' + a.owes + '">Mark paid</button>' : '')) + '</div></div>';
       }).join('') + '</div>';
@@ -769,7 +809,7 @@ h2.h{font-size:18px}
   // The short version of a bet: used in the feed and on the Challenges tab. Tapping it opens the full details.
   function betInner(bt) {
     var done = bt.phase === 'settled' || bt.phase === 'void';
-    var h = '<h3>' + esc(bt.prompt) + '</h3><span class="sub">' + esc(person(bt.proposer)) + '\'s bet   ' + esc(betWhen(bt)) + '</span>';
+    var h = '<h3>' + esc(bt.prompt) + '</h3><span class="sub">' + esc(person(bt.proposer)) + '\'s bet   ' + esc(betWhen(bt)) + '</span>' + photosHTML(bt);
     if (bt.progress) h += '<span class="sub">' + esc(bt.progress) + '</span>';
     h += sideBoxes(bt, false);
     var ol = openLine(bt); if (ol) h += '<span class="openline">' + esc(ol) + '</span>';
@@ -802,6 +842,8 @@ h2.h{font-size:18px}
       (bt.progress ? '<span class="sub">' + esc(bt.progress) + '</span>' : '') +
       (done ? '' : '<span class="sub">' + (bt.hiddenFrom.length ? 'Hidden from ' + esc(bt.hiddenFrom.map(person).join(', ')) + ' until it settles' : 'Open to everyone') + '</span>') +
       (done && bt.resultBody ? '<p style="color:var(--soft)">' + esc(bt.resultBody) + '</p>' : '') + myLine(bt) + '</section>';
+
+    h += photosHTML(bt) + (bt.proposer === S.me.pid && (bt.photos || []).length < 4 ? '<button class="link" style="color:var(--dim);text-align:left" data-a="photoPick" data-id="' + esc(bt.id) + '">Add photo</button>' : '');
 
     // sides + betting
     var pick = ui.betPick && ui.betPick.id === bt.id && bt.canBet.indexOf(ui.betPick.side) !== -1 ? ui.betPick : null;
@@ -874,13 +916,46 @@ h2.h{font-size:18px}
   }
   function fmtDay(ts) { var d = new Date(ts); return isNaN(d) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); }
   var CHEV = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>';
+  function admLoad() { api('adminSettings', {}, true).then(function (j) { if (j && j.admin) { ui.adm2 = j.admin; renderSheet(); } }); }
   function adminSheet() {
     var A = ui.adm, nf = A ? A.feedback.length : 0;
     function item(a, title, sub) { return '<button data-a="' + a + '"><span class="col grow" style="gap:2px"><b>' + title + '</b><span class="sub" style="font-size:13px">' + sub + '</span></span>' + CHEV + '</button>'; }
     return sheetWrap('Admin', '<div class="list amenu">' +
       item('adminUsage', 'Usage', 'Who uses the app, who never has, who went back to texting, how often') +
-      item('adminFeedback', 'Feedback inbox' + (A ? ' (' + nf + ')' : ''), 'What people sent from "Talk shit and make this app better"') + '</div>' +
+      item('adminFeedback', 'Feedback inbox' + (A ? ' (' + nf + ')' : ''), 'What people sent from "Talk shit and make this app better"') +
+      item('adminSettings', 'Settings', 'Rules, weeks off, people, Venmo') +
+      item('adminShare', 'Share the app', 'Text someone their personal link') + '</div>' +
       (A ? '' : '<p class="sub">Loading\u2026</p>'), '');
+  }
+  function shareSheet() {
+    var L = ui.links;
+    if (!L) return sheetWrap('Share the app', '<div class="empty">Loading\u2026</div>', '');
+    return sheetWrap('Share the app', '<p class="sub">Tap Text to open a message to that person with their personal link in it. The link signs them in as themselves, so only send it to them.</p><div class="list">' + L.map(function (x) {
+      return '<div><span class="grow">' + esc(x.name) + (x.link ? '' : ' <span class="sub">(no link yet)</span>') + (x.phone ? '' : ' <span class="sub">(no phone)</span>') + '</span>' +
+        (x.link ? '<button class="pill" data-a="shareCopy" data-id="' + esc(x.pid) + '">Copy</button><button class="pill lime" data-a="shareText" data-id="' + esc(x.pid) + '">Text</button>' : '') + '</div>';
+    }).join('') + '</div>', '');
+  }
+  function settingsSheet() {
+    var A = ui.adm2;
+    if (!A) return sheetWrap('Settings', '<div class="empty">Loading\u2026</div>', '');
+    var R = A.rules, h = '<div class="banner">Changes here apply to the whole season, past weeks included.</div>';
+    h += '<div class="col" style="gap:10px"><span class="lab">Rules</span>' + [['min_days', 'Workouts needed per week'], ['min_time', 'Minimum minutes per workout'], ['min_effort', 'Minimum WHOOP strain'], ['bet_per_miss', 'Fine for a missed week ($; doubles each week in a row)']].map(function (r) {
+      return '<label class="lab" for="rule-' + r[0] + '">' + r[1] + '</label><div class="field"><input id="rule-' + r[0] + '" type="number" inputmode="decimal" step="any" value="' + esc(R[r[0]]) + '"></div>';
+    }).join('') + '<button class="btn" data-a="admRules">Save rules</button></div>';
+    h += '<div class="col" style="gap:10px"><span class="lab">Venmo</span><label class="lab" for="rule-venmo_user">Account deposits go to</label><div class="field"><b class="sub" style="font-size:20px">@</b><input id="rule-venmo_user" autocapitalize="off" value="' + esc(R.venmo_user) + '"></div><button class="btn ghost" data-a="admVenmo">Save Venmo account</button></div>';
+    var tgt = ui.wo || 'all', P = A.people.filter(function (x) { return x.pid === tgt; })[0], off = tgt === 'all' ? A.offAll : (P ? P.off : []);
+    h += '<div class="col" style="gap:10px"><span class="lab">Weeks off</span><p class="sub">Weeks that do not count. Pick Everyone, or one person, then tap the weeks.</p><div class="opts">' +
+      [{ id: 'all', name: 'Everyone' }].concat(A.people.filter(function (x) { return x.active; }).map(function (x) { return { id: x.pid, name: x.name }; })).map(function (o) { return '<button class="opt' + (tgt === o.id ? ' on' : '') + '" data-a="admWoWho" data-id="' + esc(o.id) + '">' + esc(o.name) + '</button>'; }).join('') + '</div><div class="opts">' +
+      Array.apply(null, Array(A.seasonWeeks)).map(function (_, i) { var w = i + 1; return '<button class="opt' + (off.indexOf(w) !== -1 ? ' on' : '') + '" data-a="admWeek" data-id="' + w + '" aria-pressed="' + (off.indexOf(w) !== -1) + '">' + w + (w === A.currentWeek ? '*' : '') + '</button>'; }).join('') + '</div><span class="sub" style="font-size:12px">* this week</span></div>';
+    h += '<div class="col" style="gap:10px"><span class="lab">People</span><div class="list">' + A.people.map(function (x) {
+      return '<div><div class="col grow" style="gap:1px"><b>' + esc(x.name) + '</b><span class="sub" style="font-size:12px">' + (x.phone ? '+' + esc(x.phone) : 'No phone') + (x.active ? '' : ' \u00b7 not playing') + '</span></div><button class="pill" data-a="admPerson" data-id="' + esc(x.pid) + '">Edit</button><button class="pill' + (x.active ? ' lime' : '') + '" data-a="admActive" data-id="' + esc(x.pid) + '" aria-pressed="' + x.active + '">' + (x.active ? 'Playing' : 'Off') + '</button></div>';
+    }).join('') + '</div></div>' +
+      '<div class="col" style="gap:10px"><span class="lab">Add a person</span><input class="txt" id="admName" placeholder="Name" maxlength="30"><input class="txt" id="admPhone" type="tel" inputmode="tel" placeholder="Phone (for texted workouts)"><button class="btn" data-a="admAdd">Add person</button></div>';
+    return sheetWrap('Settings', h, '');
+  }
+  function editPostSheet() {
+    var E = ui.ep || {};
+    return sheetWrap('Edit post', '<p class="sub">Changes the words only. Nobody is told you edited it.</p><div class="col" style="gap:10px"><textarea class="txt" id="epText" rows="7" maxlength="1000">' + esc(E.text || '') + '</textarea></div>', '<button class="btn" data-a="editPostSave">Save</button>');
   }
   var U_LABEL = { texting: 'BACK TO TEXTING', never: 'NEVER USED', lapsed: 'LAPSED', active: 'USES THE APP' };
   function usageSheet() {
@@ -983,6 +1058,8 @@ h2.h{font-size:18px}
     body += block('Your side', chips('side', [{ id: 'a', label: la }, { id: 'b', label: lb }], D.side)) +
       '<div class="col" style="gap:10px"><label class="lab" for="bet-amount">' + 'Your bet (others can take any amount)' + '</label><div class="field"><b class="sub" style="font-size:20px">$</b><input id="bet-amount" type="number" inputmode="decimal" min="1" placeholder="10" value="' + esc(D.amount) + '"></div></div>' +
       '<p class="sub">Your money waits for someone to take the other side. It lines up dollar for dollar: each dollar that gets covered wins or loses a dollar. Whatever nobody covers comes back to you. Once it is in, it is locked.</p>';
+    body += D.photo ? '<div class="cmp"><img src="' + esc(D.photo) + '" alt=""><button class="link" style="color:var(--dim)" data-a="betPhotoX">Remove photo</button></div>'
+      : '<div><button class="pill" data-a="betPhoto"><span>Add a photo</span></button> <span class="sub" style="font-size:12px">Like the putt everyone is betting on</span></div>';
     return sheetWrap('Propose a side bet', body, '<button class="btn" data-a="betPost">Post the bet</button>');
   }
 
@@ -1051,6 +1128,7 @@ h2.h{font-size:18px}
     h += pushCard();
     if (S.me.admin) h += '<section class="card col" style="gap:10px"><div class="row between"><b>Admin</b><span class="sub" style="font-size:12px">Only you see this</span></div><button class="btn ghost" data-a="admin">Open admin</button></section>';
     h += '<section class="card col" style="gap:8px"><b>Put this app on your home screen</b><p class="sub"><b>iPhone:</b> open your personal link in Safari, tap Share, then "Add to Home Screen".<br><b>Android:</b> open it in Chrome, tap the menu, then "Add to Home screen".</p></section>';
+    if (S.me.admin) h += '<p style="text-align:center"><button class="link" data-a="adminShare">Share app with a fellow dad</button></p>';
     if ((S.updates || []).length) h += '<p style="text-align:center"><button class="link" data-a="newsAll">What\'s new</button></p>';
     h += '<p style="text-align:center"><button class="link" data-a="feedback">Talk shit and make this app better</button></p>';
     // One version number: the app's version, then the tracker script's (e.g. 7.6.7.6).
@@ -1124,7 +1202,8 @@ h2.h{font-size:18px}
     var L = ui.log;
     var editing = !!L.editId;
     var days = S.week.days.filter(function (d) { return !d.future; });
-    if (!editing && (!L.date || !days.some(function (d) { return d.iso === L.date; }))) L.date = S.week.today;
+    if (!editing && !L.earlier && (!L.date || !days.some(function (d) { return d.iso === L.date; }))) L.date = S.week.today;
+    var ppl = S.people.filter(function (p) { return p.active; });
     function opts(key, list) { return '<div class="opts">' + list.map(function (o) { var id = o.id || o, label = o.label || o; return '<button class="opt' + (L[key] === id ? ' on' : '') + '" data-a="set" data-k="' + key + '" data-id="' + esc(id) + '" aria-pressed="' + (L[key] === id) + '">' + esc(label) + '</button>'; }).join('') + '</div>'; }
     var ok = L.minutes >= S.rules.minTime;
     var noteBox = '<div class="col" style="gap:10px"><label class="lab" for="logNote">Note</label><textarea class="txt" id="logNote" rows="3" maxlength="500" placeholder="How did it go? Trash talk welcome.">' + esc(L.note || '') + '</textarea></div>';
@@ -1132,11 +1211,14 @@ h2.h{font-size:18px}
       return sheetWrap('Edit note', '<p class="sub">WHOOP supplies the time and strain, so only the note can be changed.</p>' + noteBox, '<button class="btn" data-a="submitLog">Save note</button>');
     }
     var body = '';
-    var dup = editing ? [] : myDayItems(L.date);
+    var dup = editing || L.forPid || L.earlier ? [] : myDayItems(L.date);
     if (editing) {
-      body += '<p class="sub">Editing your workout for ' + esc(dayLabel(L.date)) + '. It will be marked as edited.</p>';
+      body += L.who && L.who !== S.me.pid ? '<p class="sub">Editing ' + esc(person(L.who)) + "'s workout for " + esc(dayLabel(L.date)) + '. Nobody is told you changed it.</p>'
+        : '<p class="sub">Editing your workout for ' + esc(dayLabel(L.date)) + '. It will be marked as edited.</p>';
     } else {
-      body += '<div class="col" style="gap:10px"><span class="lab">Day</span>' + opts('date', days.map(function (d) { return { id: d.iso, label: d.today ? 'Today' : d.label }; })) + '</div>';
+      if (S.me.admin) body += '<div class="col" style="gap:10px"><span class="lab">Who did it</span>' + opts('forPid', [{ id: '', label: 'Me' }].concat(ppl.filter(function (p) { return p.pid !== S.me.pid; }).map(function (p) { return { id: p.pid, label: p.name }; }))) + '</div>';
+      body += '<div class="col" style="gap:10px"><span class="lab">Day</span>' + opts('date', days.map(function (d) { return { id: d.iso, label: d.today ? 'Today' : d.label }; })) +
+        (S.me.admin ? '<div class="row"><button class="opt' + (L.earlier ? ' on' : '') + '" data-a="logEarlier">Earlier day</button>' + (L.earlier ? '<input type="date" class="txt" id="logDate" max="' + esc(S.week.today) + '" value="' + esc(L.dateX || '') + '" style="flex:1">' : '') + '</div>' : '') + '</div>';
       if (dup.length) {
         var d0 = dup[0], isW = d0.source === 'whoop';
         body += '<div class="banner">You already have a ' + (isW ? 'WHOOP ' : (d0.source === 'sms' ? 'texted ' : 'logged ')) + esc(nice(d0.activity || 'workout').toLowerCase()) + ' on ' + esc(dayLabel(L.date)) + '. ' +
@@ -1227,12 +1309,14 @@ h2.h{font-size:18px}
     if (!t) { el.innerHTML = ''; return; }
     var keep = document.getElementById('logNote'); if (keep && t.t === 'log') ui.log.note = keep.value;
     var fbk = document.getElementById('fbText'); if (fbk && t.t === 'feedback') ui.fb = fbk.value;
+    var npn = document.getElementById('npName'); if (npn && t.t === 'newpot' && ui.npot) { ui.npot.name = npn.value; ui.npot.description = (document.getElementById('npDesc') || {}).value; ui.npot.entry = (document.getElementById('npEntry') || {}).value; }
+    var ept = document.getElementById('epText'); if (ept && t.t === 'editpost' && ui.ep) ui.ep.text = ept.value;
     var dpa = document.getElementById('depAmt'); if (dpa && t.t === 'deposit' && ui.dep) ui.dep.amount = dpa.value;
     var pst = document.getElementById('postText'); if (pst && t.t === 'post' && ui.post) ui.post.text = pst.value;
     if (t.t === 'bet') grabBet();
     var body = document.getElementById('sheetBody');
     var y = body && el.getAttribute('data-key') === sheetKey(t) ? body.scrollTop : 0;
-    el.innerHTML = t.t === 'pot' ? potSheet(t.id) : t.t === 'deposit' ? depositSheet() : t.t === 'admin' ? adminSheet() : t.t === 'usage' ? usageSheet() : t.t === 'fbInbox' ? feedbackInboxSheet() : t.t === 'betsDone' ? betsDoneSheet() : t.t === 'post' ? postSheet() : t.t === 'photo' ? photoSheet(t.id) : t.t === 'news' ? newsSheet() : t.t === 'newsAll' ? newsAllSheet() : t.t === 'feedback' ? feedbackSheet() : t.t === 'log' ? logSheet() : t.t === 'bet' ? betSheet() : t.t === 'betd' ? betDetailSheet(t.id) : t.t === 'week' ? weekSheet(t.week) : t.t === 'profile' ? profileSheet(t.pid) : badgeSheet(t.id, t.pid);
+    el.innerHTML = t.t === 'newpot' ? newPotSheet() : t.t === 'share' ? shareSheet() : t.t === 'settings' ? settingsSheet() : t.t === 'editpost' ? editPostSheet() : t.t === 'pot' ? potSheet(t.id) : t.t === 'deposit' ? depositSheet() : t.t === 'admin' ? adminSheet() : t.t === 'usage' ? usageSheet() : t.t === 'fbInbox' ? feedbackInboxSheet() : t.t === 'betsDone' ? betsDoneSheet() : t.t === 'post' ? postSheet() : t.t === 'photo' ? photoSheet(t.id) : t.t === 'news' ? newsSheet() : t.t === 'newsAll' ? newsAllSheet() : t.t === 'feedback' ? feedbackSheet() : t.t === 'log' ? logSheet() : t.t === 'bet' ? betSheet() : t.t === 'betd' ? betDetailSheet(t.id) : t.t === 'week' ? weekSheet(t.week) : t.t === 'profile' ? profileSheet(t.pid) : badgeSheet(t.id, t.pid);
     el.setAttribute('data-key', sheetKey(t));
     if (y) document.getElementById('sheetBody').scrollTop = y;
   }
@@ -1311,7 +1395,7 @@ h2.h{font-size:18px}
     },
     editW: function (id) {
       var it = findItem(id)[0]; if (!it) return;
-      ui.log = { editId: id, noteOnly: it.canEdit === 'note', date: it.date, type: TYPES.indexOf(it.activity) !== -1 ? it.activity : 'Other', minutes: it.minutes || 30, effort: it.effort || 'Moderate', note: it.note || '' };
+      ui.log = { editId: id, who: it.pid, noteOnly: it.canEdit === 'note', date: it.date, type: TYPES.indexOf(it.activity) !== -1 ? it.activity : 'Other', minutes: it.minutes || 30, effort: it.effort || 'Moderate', note: it.note || '' };
       pushSheet({ t: 'log' });
     },
     fabMenu: function () { setFab(!document.body.classList.contains('fabon')); },
@@ -1392,6 +1476,7 @@ h2.h{font-size:18px}
           var ph = { id: 'tmp_ph' + Date.now(), pid: S.me.pid, src: data };
           findItem(id).forEach(function (it) { it.photos = (it.photos || []).concat([ph]); });
           var pt = potById(id); if (pt) pt.photos = (pt.photos || []).concat([ph]);
+          var bt = betOf(id); if (bt) bt.photos = (bt.photos || []).concat([ph]);
           render();
           queue('photoAdd', { target: id, data: data });
         }).catch(function (e) { toast(e.message, true); });
@@ -1403,6 +1488,7 @@ h2.h{font-size:18px}
       if (!confirm('Delete this photo?')) return;
       var f = findPhoto(id); if (f) findItem(f.it.id).forEach(function (it) { it.photos = (it.photos || []).filter(function (x) { return x.id !== id; }); });
       if (f && f.pot) f.pot.photos = (f.pot.photos || []).filter(function (x) { return x.id !== id; });
+      if (f && f.bet) f.bet.photos = (f.bet.photos || []).filter(function (x) { return x.id !== id; });
       ACT.closeSheet();
       queue('photoDelete', { id: id });
     },
@@ -1411,7 +1497,9 @@ h2.h{font-size:18px}
       var el = document.getElementById('p-' + id);
       if (el) el.scrollIntoView({ block: 'center' }); else toast('That post is further back than the feed goes.');
     },
-    set: function (id, el) { ui.log[el.getAttribute('data-k')] = id; renderSheet(); },
+    logEarlier: function () { var d = val('logDate'); ui.log.earlier = !ui.log.earlier; if (ui.log.earlier) { ui.log.date = ''; } else { ui.log.dateX = d || ui.log.dateX; } renderSheet(); },
+    set: function (id, el) {
+      if (el.getAttribute('data-k') === 'date') ui.log.earlier = false; ui.log[el.getAttribute('data-k')] = id; renderSheet(); },
     mins: function (id) { ui.log.minutes = Math.max(5, Math.min(300, ui.log.minutes + parseInt(id, 10))); renderSheet(); },
     submitLog: function () {
       var L = ui.log; L.note = val('logNote');
@@ -1419,16 +1507,19 @@ h2.h{font-size:18px}
       function reopen() { ui.log = saved; closeAll(); pushSheet({ t: 'log' }); }
       if (L.editId) {
         findItem(L.editId).forEach(function (it) {
-          it.note = L.note; it.editedAt = now;
+          it.note = L.note; if (!(S.me.admin && it.pid !== S.me.pid)) it.editedAt = now;
           if (!L.noteOnly) { it.minutes = L.minutes; it.activity = L.type; it.effort = L.effort; }
         });
         queue('editWorkout', { id: L.editId, type: L.type, minutes: L.minutes, effort: L.effort, note: L.note }, reopen);
         ui.log = freshLog(); ACT.closeSheet();
         return;
       }
-      S.feed.unshift({ id: 'tmp_w' + Date.now(), kind: 'w', pid: S.me.pid, ts: now, date: L.date, source: 'app', activity: L.type, minutes: L.minutes, strain: null,
+      var logDate = L.earlier ? val('logDate') : L.date;
+      if (!logDate) { toast('Pick the day.', true); return; }
+      var forP = L.forPid || '';
+      S.feed.unshift({ id: 'tmp_w' + Date.now(), kind: 'w', pid: forP || S.me.pid, ts: now, date: logDate, source: 'app', activity: L.type, minutes: L.minutes, strain: null,
         effort: L.effort, note: L.note, ok: L.minutes >= S.rules.minTime, editedAt: '', canDelete: false, canEdit: '', reacts: {}, firedBy: [], fires: 0, fired: false, comments: [], pending: true });
-      queue('logWorkout', { date: L.date, type: L.type, minutes: L.minutes, effort: L.effort, note: L.note }, reopen);
+      queue('logWorkout', { date: logDate, type: L.type, minutes: L.minutes, effort: L.effort, note: L.note, forPid: forP }, reopen);
       ui.log = freshLog(); closeAll(); ui.tab = 'feed'; render(); view.scrollTop = 0;
     },
     settle: function (id) {
@@ -1436,13 +1527,13 @@ h2.h{font-size:18px}
       api('settle', { week: id, amount: parseFloat(v) }).then(function (j) { if (j) { ui.open['pot' + id] = false; render(); } });
     },
     deposit: function (id, el) {
-      ui.dep = { amount: '', week: (el && el.getAttribute('data-w')) || '', left: parseFloat(el && el.getAttribute('data-amt')) || 0 };
+      ui.dep = { amount: '', week: (el && el.getAttribute('data-w')) || '', note: (el && el.getAttribute('data-n')) || '', left: parseFloat(el && el.getAttribute('data-amt')) || 0 };
       pushSheet({ t: 'deposit' });
     },
     depVenmo: function () {
       var a = parseFloat(val('depAmt')); if (!(a > 0)) { toast('Enter the amount first.', true); return; }
       var w = ui.dep && ui.dep.week;
-      openVenmo(a, 'BC Dads WAG' + (w ? ' Week ' + w + ' pot' : ''));
+      openVenmo(a, 'BC Dads WAG' + (ui.dep && ui.dep.note ? ' ' + ui.dep.note : (w ? ' Week ' + w + ' pot' : '')));
     },
     depCopy: function () { var t = '@' + venmoUser(); try { navigator.clipboard.writeText(t).then(function () { toast('Copied ' + t); }, function () { toast(t); }); } catch (e) { toast(t); } },
     depSent: function () {
@@ -1459,7 +1550,73 @@ h2.h{font-size:18px}
       if (!confirm('Record a ' + money(amt) + ' payment from ' + person(id) + '? It counts right away.')) return;
       api('payment', { forPid: id, amount: amt, week: w }).then(done);
     },
-    potOpen: function (id) { pushSheet({ t: 'pot', id: 'pot_' + id }); },
+    potOpen: function (id) { pushSheet({ t: 'pot', id: /^\d+$/.test(id) ? 'pot_' + id : id }); },
+    openPot: function () { setFab(false); ui.npot = { name: '', description: '', entry: '' }; pushSheet({ t: 'newpot' }); },
+    potCreate: function () {
+      var name = val('npName'), desc = val('npDesc'), entry = parseFloat(val('npEntry'));
+      if (name.length < 3) { toast('Give the pot a name.', true); return; }
+      if (!(entry >= 1)) { toast('Set the entry amount.', true); return; }
+      var id = 'cpot_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+      api('potCreate', { id: id, name: name, description: desc, entry: entry }).then(function (j) { if (j) { ui.npot = null; closeAll(); pushSheet({ t: 'pot', id: id }); } });
+    },
+    potJoin: function (id) { api('potJoin', { id: id }).then(done); },
+    potLeave: function (id) { if (!confirm('Leave this pot?')) return; api('potLeave', { id: id }).then(done); },
+    potWin: function (id, el) {
+      var pot = el.getAttribute('data-w'), p = potById(pot); ui.potW = ui.potW || {};
+      var W = ui.potW[pot] || (p && p.settled ? p.winners.slice() : []), i = W.indexOf(id); if (i === -1) W.push(id); else W.splice(i, 1);
+      ui.potW[pot] = W; renderSheet();
+    },
+    potSettleC: function (id) {
+      var p = potById(id), W = (ui.potW && ui.potW[id]) || (p && p.settled ? p.winners : []);
+      if (!W.length) { toast('Pick at least one winner.', true); return; }
+      api('potSettle', { id: id, winners: W.join(','), total: val('cpTotal') }).then(function (j) { if (j) { ui.potW && delete ui.potW[id]; render(); } });
+    },
+    potCancelC: function (id) { if (!confirm('Cancel this pot? Nobody will owe an entry for it any more.')) return; api('potCancel', { id: id }).then(function (j) { if (j) { closeAll(); render(); } }); },
+    editPost: function (id) { var it = findItem(id)[0]; if (!it) return; ui.ep = { id: id, text: it.body || '' }; pushSheet({ t: 'editpost' }); },
+    editPostSave: function () {
+      var t = val('epText'); if (!t) { toast('A post cannot be empty.', true); return; }
+      var id = ui.ep && ui.ep.id;
+      api('adminEditPost', { id: id, text: t }).then(function (j) { if (j) { findItem(id).forEach(function (it) { it.body = t; }); ui.ep = null; ACT.closeSheet(); } });
+    },
+    adminShare: function () {
+      ui.links = null; pushSheet({ t: 'share' });
+      api('adminLinks', {}, true).then(function (j) { if (j && j.links) { ui.links = j.links; renderSheet(); } });
+    },
+    shareCopy: function (id) { var x = (ui.links || []).filter(function (l) { return l.pid === id; })[0]; if (!x) return; try { navigator.clipboard.writeText(x.link).then(function () { toast('Link copied.'); }, function () { toast(x.link); }); } catch (e) { toast(x.link); } },
+    shareText: function (id) {
+      var x = (ui.links || []).filter(function (l) { return l.pid === id; })[0]; if (!x) return;
+      var msg = 'Here is your personal link for the BC Dads WAG app: ' + x.link + '  Open it in Safari, tap Share, then Add to Home Screen.';
+      location.href = 'sms:' + (x.phone ? '+' + x.phone : '') + (/iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent) ? '&' : '?') + 'body=' + encodeURIComponent(msg);
+    },
+    adminSettings: function () { ui.adm2 = null; pushSheet({ t: 'settings' }); admLoad(); },
+    admRules: function () {
+      var keys = ['min_days', 'min_time', 'min_effort', 'bet_per_miss'], i = 0;
+      (function next() { if (i >= keys.length) { toast('Rules saved.'); admLoad(); refresh(true); return; } var k = keys[i++]; api('adminSet', { key: k, value: val('rule-' + k) }, true).then(function (j) { if (j) next(); else admLoad(); }); })();
+    },
+    admVenmo: function () { api('adminSet', { key: 'venmo_user', value: val('rule-venmo_user') }, true).then(function (j) { if (j) { admLoad(); refresh(true); } }); },
+    admWoWho: function (id) { ui.wo = id; renderSheet(); },
+    admWeek: function (id) {
+      var A = ui.adm2, tgt = ui.wo || 'all', P = A.people.filter(function (x) { return x.pid === tgt; })[0], w = parseInt(id, 10);
+      var off = (tgt === 'all' ? A.offAll : (P ? P.off : [])).slice(), i = off.indexOf(w); if (i === -1) off.push(w); else off.splice(i, 1); off.sort(function (a, b) { return a - b; });
+      if (tgt === 'all') A.offAll = off; else if (P) P.off = off;
+      renderSheet(); api('adminWeeksOff', { pid: tgt, weeks: off.join(',') }, true).then(function (j) { if (j) refresh(true); else admLoad(); });
+    },
+    admActive: function (id) {
+      var P = ui.adm2.people.filter(function (x) { return x.pid === id; })[0]; if (!P) return;
+      if (P.active && !confirm('Take ' + P.name + ' out of the game? They stop counting in the tracker.')) return;
+      api('adminPersonSet', { pid: id, active: P.active ? '' : '1' }, true).then(function (j) { admLoad(); if (j) refresh(true); });
+    },
+    admPerson: function (id) {
+      var P = ui.adm2.people.filter(function (x) { return x.pid === id; })[0]; if (!P) return;
+      var nm = prompt('Name', P.name); if (nm === null) return;
+      var ph = prompt('Phone number (texted workouts are matched by this)', P.phone || ''); if (ph === null) return;
+      api('adminPersonSet', { pid: id, name: nm, phone: ph }, true).then(function (j) { admLoad(); if (j) refresh(true); });
+    },
+    admAdd: function () {
+      var nm = val('admName'); if (nm.length < 2) { toast('Enter a name.', true); return; }
+      api('adminPersonAdd', { name: nm, phone: val('admPhone') }, true).then(function (j) { admLoad(); if (j) refresh(true); });
+    },
+
     potCDel: function (id) {
       if (!confirm('Delete this comment?')) return;
       ((S.bank && S.bank.pots) || []).forEach(function (p) { p.comments = (p.comments || []).filter(function (c) { return c.id !== id; }); });
@@ -1489,6 +1646,13 @@ h2.h{font-size:18px}
     bteam: function (id) { grabBet(); var D = ui.bet; D.team = id === 'team'; if (!D.team) { D.A = D.A.slice(0, 1); D.B = D.B.slice(0, 1); } renderSheet(); },
     bhide: function () { grabBet(); ui.bet.hide = !ui.bet.hide; renderSheet(); },
     bn: function (id) { grabBet(); ui.bet.n = Math.max(1, Math.min(30, ui.bet.n + parseInt(id, 10))); renderSheet(); },
+    betPhoto: function () {
+      grabBet();
+      var inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.hidden = true;
+      inp.onchange = function () { var f = inp.files && inp.files[0]; inp.remove(); if (!f) return; shrinkPhoto(f).then(function (d) { if (ui.bet) { grabBet(); ui.bet.photo = d; renderSheet(); } }).catch(function (e) { toast(e.message, true); }); };
+      document.body.appendChild(inp); inp.click();
+    },
+    betPhotoX: function () { grabBet(); if (ui.bet) ui.bet.photo = ''; renderSheet(); },
     betPost: function () {
       grabBet(); var D = ui.bet;
       var req = { type: D.type, side: D.side, amount: parseFloat(D.amount) };
@@ -1501,7 +1665,9 @@ h2.h{font-size:18px}
         if (!D.A.length) { toast('Pick who the bet is about.', true); return; }
         if (D.type === 'ou' && isNaN(req.line)) { toast('Enter the over/under number.', true); return; }
       }
-      api('betPropose', req).then(function (j) { if (!j) return; ui.bet = null; closeAll(); ui.tab = 'challenges'; render(); view.scrollTop = 0; });
+      var bid = 'sb_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36), pic = D.photo || '';
+      req.id = bid;
+      api('betPropose', req).then(function (j) { if (!j) return; if (pic) queue('photoAdd', { target: bid, data: pic }); ui.bet = null; closeAll(); ui.tab = 'challenges'; render(); view.scrollTop = 0; });
     },
     betOpen: function (id) { var t = top(); if (t && t.t === 'betd' && t.id === id) return; ui.betPick = null; pushSheet({ t: 'betd', id: id }); },
     betPick: function (id, el) { ui.betPick = { id: id, side: el.getAttribute('data-k'), amount: ui.betPick && ui.betPick.id === id ? val('betAmt') : '' }; renderSheet(); var f = document.getElementById('betAmt'); if (f) f.focus(); },
