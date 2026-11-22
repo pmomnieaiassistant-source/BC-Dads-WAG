@@ -1,6 +1,7 @@
 // ================================================================
 // BC Dads WAG - v7 backend
-// Version: Nov 22, 2026 - v8.5
+// Version: Nov 22, 2026 - v8.6
+//   - v8.6: audit fixes: new people start fresh this week, one read per tab while building the app's data
 //   - v8.5: custom pots, admin Settings + share links, quiet admin edits / workouts for others, head-to-head bets close when decided, photos on bets
 //   - v8.4: a logged workout and the WHOOP workout for the same day merge into one card (WHOOP strain, heart rate, zones, calories)
 //   - v8.3: payments wait for the admin to confirm; Venmo deposit; pot cards with who owes / paid, photos and chat; only the admin settles pots
@@ -25,7 +26,7 @@
 // This ONE file replaces Code.gs, webapp.gs, appsheet_v6_bridge.gs and Index.html.
 // ================================================================
 
-var V7_VERSION = '8.5';
+var V7_VERSION = '8.6';
 var SB_GRACE_MIN = 90;            // side bets: how long after a period ends before a "didn't happen" is paid out (lets late WHOOP data arrive)
 var APP_SYNC_COOLDOWN_MIN = 5;   // the in-app Sync button pulls WHOOP at most this often, for the whole group
 
@@ -220,14 +221,28 @@ function sheetHeaders_(sh) {
   return sh.getRange(1, 1, 1, width).getValues()[0].map(function(h) { return str_(h).toLowerCase(); });
 }
 
+// While set, each tab is read from the Sheet once and reused (used only for read-only work such as building the
+// app's data, where the same tab is needed by several parts). Rows are parsed fresh each time, so callers can change them.
+var _vcache = null;
+function withReadCache_(fn) {
+  var had = _vcache;
+  _vcache = had || {};
+  try { return fn(); } finally { _vcache = had; }
+}
+
 // Returns [{header: value, ..., _row: sheetRowNumber}], all values as strings.
 function readTable_(name) {
-  var sh = HEAD[name] ? tab_(name) : ss_().getSheetByName(name);
-  if (!sh) return [];
-  var last = sh.getLastRow();
-  if (last < 2) return [];
-  var width = Math.max(sh.getLastColumn(), 1);
-  var data = sh.getRange(1, 1, last, width).getValues();
+  var data = _vcache ? _vcache[name] : null;
+  if (!data) {
+    var sh = HEAD[name] ? tab_(name) : ss_().getSheetByName(name);
+    if (!sh) return [];
+    var last = sh.getLastRow();
+    if (last < 2) { if (_vcache) _vcache[name] = []; return []; }
+    var width = Math.max(sh.getLastColumn(), 1);
+    data = sh.getRange(1, 1, last, width).getValues();
+    if (_vcache) _vcache[name] = data;
+  }
+  if (!data.length) return [];
   var headers = data[0].map(function(h) { return str_(h).toLowerCase(); });
   var out = [];
   for (var r = 1; r < data.length; r++) {
@@ -1393,11 +1408,13 @@ function apiAdminPersonAdd_(me, req) {
   if (str_(req.phone) && !ph) throw new Error('That phone number does not look right.');
   var max = 0; people.forEach(function(p) { var n = parseInt(String(p.pid).replace(/\D/g, ''), 10); if (n > max) max = n; });
   var pid = 'p' + ('00' + (max + 1)).slice(-3), key = Utilities.getUuid().replace(/-/g, '').substring(0, 16);
-  var tz = readSettings_().timezone || 'America/New_York';
+  var st = readSettings_(), tz = st.timezone || 'America/New_York';
+  var cw = weekOf_(todayIso_(tz), isoOf_(st.challenge_start_date, tz)), off = [];
+  for (var w = 1; w < cw; w++) off.push(w);   // every week before this one is marked off for them
   ensureParticipantCols_();
   appendRows_(TAB.PARTICIPANTS, [{ participant_id: pid, display_name: name, active: 'TRUE', source_identifier: ph ? 'SMS only' : 'App only', date_added: todayIso_(tz),
-    phone: ph.replace('+', ''), inactive_weeks: '', app_key: key, app_link: partLink_({ settings: readSettings_() }, key), initials: truncate_(str_(req.initials) || name.replace(/[^A-Za-z]/g, '').substring(0, 2), 3).toUpperCase() }]);
-  return 'Added ' + name + '. Their link is ready under Share the app.';
+    phone: ph.replace('+', ''), inactive_weeks: off.join(','), app_key: key, app_link: partLink_({ settings: readSettings_() }, key), initials: truncate_(str_(req.initials) || name.replace(/[^A-Za-z]/g, '').substring(0, 2), 3).toUpperCase() }]);
+  return 'Added ' + name + '. They start fresh this week, and their link is ready under Share the app.';
 }
 
 // Admin: change the words of someone's post, quietly (no "edited" mark, no alert).
@@ -2229,7 +2246,8 @@ function feedItems_(me, ctx, onlyPid, limit) {
 function buildFeed_(me, ctx) { return feedItems_(me, ctx, '', 150); }
 
 // One person's page: all their posts plus their comment wall.
-function buildProfile_(me, ctx, pid) {
+function buildProfile_(me, ctx, pid) { return withReadCache_(function() { return buildProfileCore_(me, ctx, pid); }); }
+function buildProfileCore_(me, ctx, pid) {
   if (!ctx.byPid[pid]) return null;
   var wall = [];
   readTable_(TAB.COMMENTS).forEach(function(c) {
@@ -2456,7 +2474,8 @@ function computeBadges_(ctx, bank, ch) {
   return { stats: out, badges: badges };
 }
 
-function buildState_(me, ctx) {
+function buildState_(me, ctx) { return withReadCache_(function() { return buildStateCore_(me, ctx); }); }
+function buildStateCore_(me, ctx) {
   var cw = ctx.currentWeek;
   var days = [];
   if (cw >= 1) {

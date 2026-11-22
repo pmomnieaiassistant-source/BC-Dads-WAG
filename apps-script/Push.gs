@@ -194,12 +194,3 @@ function pushResult_(r, pid, tok) {
   else Logger.log('Push to ' + pid + ' failed (' + code + '): ' + r.getContentText());
   return false;
 }
-
-// Sends one notification right away to every phone the person turned push on for. Returns how many phones got it.
-function pushSendAll_(pid, title, body, urgent) {
-  var tokens = pushTokens_(pid);
-  if (!tokens.length) return 0;
-  var base = pushBase_(), sent = 0;
-  UrlFetchApp.fetchAll(tokens.map(function(t) { return pushRequest_(base, t, title, body, urgent); })).forEach(function(r, i) { if (pushResult_(r, pid, tokens[i])) sent++; });
-  return sent;
-}
