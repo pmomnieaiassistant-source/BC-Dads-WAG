@@ -26,7 +26,7 @@
 // This ONE file replaces Code.gs, webapp.gs, appsheet_v6_bridge.gs and Index.html.
 // ================================================================
 
-var V7_VERSION = '9.4';
+var V7_VERSION = '9.5';
 var SB_GRACE_MIN = 90;            // side bets: how long after a period ends before a "didn't happen" is paid out (lets late WHOOP data arrive)
 var APP_SYNC_COOLDOWN_MIN = 5;   // the in-app Sync button pulls WHOOP at most this often, for the whole group
 
@@ -47,7 +47,8 @@ var TAB = {
 var HEAD = {
   Workouts: ['workout_id', 'participant_id', 'workout_date', 'workout_start', 'workout_end',
              'duration_minutes', 'strain', 'source', 'activity', 'effort', 'note', 'created_at', 'status', 'edited_at',
-             'avg_hr', 'max_hr', 'kilojoules', 'distance_m', 'zones', 'link_to', 'entered_by'],
+             'avg_hr', 'max_hr', 'kilojoules', 'distance_m', 'zones', 'link_to', 'entered_by',
+             'title', 'description', 'device', 'avg_watts', 'max_watts', 'output_kj', 'cadence', 'calories', 'elevation_m'],   // the last row: Strava (Peloton class, output, watts...)
   Cycles: ['cycle_key', 'participant_id', 'cycle_date', 'strain', 'updated_at'],
   Feed_Events: ['event_id', 'created_at', 'type', 'participant_id', 'week', 'title', 'body', 'deleted'],
   Comments: ['comment_id', 'target_id', 'participant_id', 'text', 'created_at'],
@@ -2285,9 +2286,13 @@ function feedTime_(w, tz) {
 function whoopDetail_(w) {
   var z = str_(w.zones) ? str_(w.zones).split(',').map(function(x) { return x === '' ? 0 : num_(x, 0); }) : [];
   var avg = num_(w.avg_hr, 0), max = num_(w.max_hr, 0), kj = num_(w.kilojoules, 0), dist = num_(w.distance_m, 0);
-  if (!avg && !max && !kj && !dist && !z.length) return null;
-  return { avgHr: Math.round(avg) || 0, maxHr: Math.round(max) || 0, kcal: Math.round(kj / 4.184) || 0,
+  var x = { title: str_(w.title), desc: str_(w.description), device: str_(w.device), watts: Math.round(num_(w.avg_watts, 0)) || 0, maxWatts: Math.round(num_(w.max_watts, 0)) || 0,
+            output: Math.round(num_(w.output_kj, 0)) || 0, cadence: Math.round(num_(w.cadence, 0)) || 0, elev: Math.round(num_(w.elevation_m, 0) * 3.28084) || 0 };
+  if (!avg && !max && !kj && !dist && !z.length && !x.title && !x.desc && !x.watts && !x.output) return null;
+  var d = { avgHr: Math.round(avg) || 0, maxHr: Math.round(max) || 0, kcal: Math.round(kj / 4.184) || 0,
            miles: dist ? Math.round(dist / 1609.344 * 100) / 100 : 0, zones: z, sport: str_(w.activity), minutes: w.duration_minutes === '' ? null : Math.round(num_(w.duration_minutes, 0)) };
+  Object.keys(x).forEach(function(k) { if (x[k]) d[k] = x[k]; });
+  return d;
 }
 
 // Builds feed items. onlyPid = one person's posts (for profiles); limit = how many to return.
@@ -2383,7 +2388,7 @@ function feedItems_(me, ctx, onlyPid, limit) {
     if (src === 'whoop' && !w._ok && !showAll) return;
     if (src === 'sms' && hasReal[key]) return;
     var mineThisWeek = w.participant_id === me.pid && weekOf_(w._date, ctx.startIso) === ctx.currentWeek;
-    var ww = withWhoop[w.workout_id], sv = withStrava[w.workout_id];
+    var ww = withWhoop[w.workout_id], sv = src === 'strava' ? w : withStrava[w.workout_id];
     var detailRow = src === 'whoop' ? w : (ww || (src === 'strava' ? w : sv || null));
     items.push({
       id: w.workout_id, kind: 'w', pid: w.participant_id, ts: feedTime_(ww || w, ctx.tz),
@@ -2392,9 +2397,9 @@ function feedItems_(me, ctx, onlyPid, limit) {
       strain: ww ? (ww.strain === '' ? null : num_(ww.strain, null)) : (w.strain === '' ? null : num_(w.strain, null)),
       effort: str_(w.effort), note: str_(w.note), ok: !!w._ok, editedAt: str_(w.edited_at),
       detail: (function() { var d = detailRow ? whoopDetail_(detailRow) : null, sd = sv && sv !== detailRow ? whoopDetail_(sv) : null;
-        if (d && sd) { if (!d.miles) d.miles = sd.miles; if (!d.avgHr) d.avgHr = sd.avgHr; if (!d.maxHr) d.maxHr = sd.maxHr; }
+        if (d && sd) { ['miles', 'avgHr', 'maxHr', 'kcal', 'title', 'desc', 'device', 'watts', 'maxWatts', 'output', 'cadence', 'elev'].forEach(function(k) { if (!d[k] && sd[k]) d[k] = sd[k]; }); }
         return d || sd; })(),
-      strava: !!sv,
+      strava: !!sv, whoop: !!ww,
       canDelete: src === 'app' && mineThisWeek,
       canEdit: mineThisWeek || adminMe ? (src === 'whoop' || src === 'strava' ? 'note' : (src === 'app' || adminMe ? 'full' : '')) : ''
     });
@@ -3579,7 +3584,16 @@ function syncStrava_(ctx, fullForAll) {
       if (page.length < 100) break;
     }
     if (failed) { out.summary.push(p.name + ': strava error ' + failed); return; }
-    var added = 0;
+    var added = 0, details = 0;
+    // The full activity (description, calories, device) takes one call each: only for activities not fetched before, 40 per sync at most.
+    function fullOf(a) {
+      if (details >= 40) return null;
+      details++;
+      try {
+        var rr = UrlFetchApp.fetch(STRAVA_API + '/activities/' + a.id, { headers: { Authorization: 'Bearer ' + token }, muteHttpExceptions: true });
+        return rr.getResponseCode() === 200 ? JSON.parse(rr.getContentText()) : null;
+      } catch (e) { return null; }
+    }
     acts.forEach(function(a) {
       if (!a || !a.id || !a.start_date) return;
       var date = isoOf_(new Date(a.start_date), ctx.tz);
@@ -3590,18 +3604,28 @@ function syncStrava_(ctx, fullForAll) {
       var id = 'strava_' + a.id, old = existing[id];
       var row = { workout_id: id, participant_id: p.pid, workout_date: date, workout_start: a.start_date, workout_end: end,
         duration_minutes: String(Math.round(secs / 60 * 10) / 10), strain: '', source: 'strava', activity: stravaSport_(a.sport_type || a.type),
-        effort: '', note: generic ? '' : truncate_(name, 200), created_at: end, status: 'active',
-        avg_hr: strNum_(a.average_heartrate, 1), max_hr: strNum_(a.max_heartrate, 1), kilojoules: strNum_(a.kilojoules, 10), distance_m: strNum_(a.distance, 1), zones: '' };
+        effort: '', note: '', created_at: end, status: 'active',
+        avg_hr: strNum_(a.average_heartrate, 1), max_hr: strNum_(a.max_heartrate, 1), kilojoules: '', distance_m: strNum_(a.distance, 1), zones: '',
+        title: generic ? '' : truncate_(name, 200), avg_watts: strNum_(a.average_watts, 1), max_watts: strNum_(a.max_watts, 1),
+        output_kj: strNum_(a.kilojoules, 1), cadence: strNum_(a.average_cadence, 1), elevation_m: strNum_(a.total_elevation_gain, 1),
+        description: old ? str_(old.description) : '', device: old ? str_(old.device) : '', calories: old ? str_(old.calories) : '' };
+      // Description (Peloton puts the class details there), calories and device come from the full activity.
+      if (!old || (!str_(old.device) && !str_(old.calories) && !str_(old.description))) {
+        var full = fullOf(a);
+        if (full) { row.description = truncate_(str_(full.description), 600); row.device = truncate_(str_(full.device_name), 60); row.calories = strNum_(full.calories, 1); }
+      }
+      if (row.calories) row.kilojoules = String(Math.round(Number(row.calories) * 4.184));   // energy, so the card's calories match Strava
       if (!old) { addW.push(row); existing[id] = row; added++; return; }
       if (!old._row || str_(old.status).toLowerCase() === 'deleted') return;
-      if (str_(old.duration_minutes) !== row.duration_minutes || isoOf_(old.workout_date, ctx.tz) !== date || str_(old.avg_hr) !== row.avg_hr || str_(old.distance_m) !== row.distance_m) {
-        if (old.edited_at || old.note) row.note = old.note;   // keep a note the person changed in the app
+      var keys = ['duration_minutes', 'avg_hr', 'distance_m', 'title', 'description', 'device', 'calories', 'avg_watts', 'output_kj', 'cadence'];
+      if (isoOf_(old.workout_date, ctx.tz) !== date || keys.some(function(k) { return str_(old[k]) !== str_(row[k]); })) {
+        row.note = old.edited_at ? str_(old.note) : (str_(old.note) === name ? '' : str_(old.note));   // the title used to sit in the note
         row.edited_at = old.edited_at || ''; row.created_at = old.created_at || row.created_at;
         updateRow_(TAB.WORKOUTS, old._row, row); out.changed++;
       }
     });
     if (t.needs_backfill) { var t2 = stravaTokens_(p.pid); if (t2) { delete t2.needs_backfill; stravaSave_(p.pid, t2); } }
-    out.summary.push(p.name + ': strava ok fetched=' + acts.length + ' new=' + added + (full ? ' (full)' : ''));
+    out.summary.push(p.name + ': strava ok fetched=' + acts.length + ' new=' + added + ' details=' + details + (full ? ' (full)' : ''));
   });
   appendRows_(TAB.WORKOUTS, addW);
   out.added = addW.length;

@@ -493,6 +493,11 @@ h2.h{font-size:18px}
     var d = it.detail; if (!d) return '';
     var bits = [];
     if (it.source !== 'whoop' && it.effort) bits.push('Effort <b>' + esc(it.effort) + '</b>');
+    if (d.output) bits.push('Output <b>' + d.output + '</b> kJ');
+    if (d.watts) bits.push('Avg <b>' + d.watts + '</b> W');
+    if (d.maxWatts) bits.push('Max <b>' + d.maxWatts + '</b> W');
+    if (d.cadence) bits.push('<b>' + d.cadence + '</b> ' + (/run|walk|hike/i.test(it.activity || '') ? 'spm' : 'rpm'));
+    if (d.elev) bits.push('<b>' + d.elev + '</b> ft up');
     if (d.avgHr) bits.push('Avg HR <b>' + d.avgHr + '</b>');
     if (d.maxHr) bits.push('Max <b>' + d.maxHr + '</b>');
     if (d.kcal) bits.push('<b>' + d.kcal + '</b> cal');
@@ -502,12 +507,17 @@ h2.h{font-size:18px}
     if (tot > 0) {
       for (i = 1; i <= 5; i++) if ((z[i] || 0) > 0) { bar += '<i class="z' + i + '" style="flex:' + z[i] + '"></i>'; if (z[i] >= 1) key += (key ? ' \u00b7 ' : '') + 'Z' + i + ' ' + Math.round(z[i]) + 'm'; }
     }
-    return (bits.length ? '<div class="wdet">' + bits.map(function (x) { return '<span>' + x + '</span>'; }).join('') + '</div>' : '') +
+    var head = (d.title ? '<b style="font-size:15px">' + esc(d.title) + '</b>' : '') + (d.device ? '<span class="sub" style="font-size:12px">' + esc(d.device) + '</span>' : '') +
+      (d.desc ? '<p style="color:var(--soft);white-space:pre-wrap;font-size:14px">' + esc(d.desc) + '</p>' : '');
+    return (head ? '<div class="col" style="gap:4px">' + head + '</div>' : '') + (bits.length ? '<div class="wdet">' + bits.map(function (x) { return '<span>' + x + '</span>'; }).join('') + '</div>' : '') +
       (bar ? '<div class="col" style="gap:5px"><div class="zb" role="img" aria-label="Time in heart rate zones">' + bar + '</div><span class="sub" style="font-size:12px">' + key + '</span></div>' : '');
   }
   function workoutCard(it) {
     var merged = it.source !== 'whoop' && it.source !== 'sms' && !!it.detail;
-    var badge = it.source === 'whoop' ? '<span class="tag">WHOOP</span>' : (it.source === 'sms' ? '<span class="tag">TEXT</span>' : it.source === 'strava' ? '<span class="tag strava">STRAVA</span>' : '<span class="tag lime">LOGGED</span>') + (it.strava ? '<span class="tag strava">STRAVA</span>' : '') + (merged && it.strain !== null && it.strain !== undefined ? '<span class="tag">WHOOP</span>' : '');
+    // One tag for each place the data came from: logged in the app (or texted), Strava, WHOOP.
+    var badge = (it.source === 'sms' ? '<span class="tag">TEXT</span>' : it.source !== 'whoop' && it.source !== 'strava' ? '<span class="tag lime">LOGGED</span>' : '') +
+      (it.source === 'strava' || it.strava ? '<span class="tag strava">STRAVA</span>' : '') +
+      (it.source === 'whoop' || it.whoop || (merged && it.strain !== null && it.strain !== undefined) ? '<span class="tag">WHOOP</span>' : '');
     var second = it.source === 'whoop' || (it.strain !== null && it.strain !== undefined) ? ['Strain', it.strain === null || it.strain === undefined ? '--' : it.strain.toFixed(1)] : it.source === 'strava' ? ['Distance', it.detail && it.detail.miles ? it.detail.miles + ' mi' : '--'] : ['Effort', it.effort || '--'];
     return '<article class="card col" style="gap:14px" id="p-' + esc(it.id) + '"><div class="row">' + avatar(it.pid) +
       '<div class="col grow" style="gap:1px">' + nameBtn(it.pid) + '<span class="sub" style="font-size:12px">' + esc(nice(it.activity || 'Workout')) + '   ' + esc(ago(it.ts)) + (it.editedAt ? '   edited ' + esc(ago(it.editedAt)) : '') + '</span></div><div class="row" style="gap:6px;flex:none">' + badge + '</div></div>' +
