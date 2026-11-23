@@ -531,7 +531,7 @@ h2.h{font-size:18px}
     var all = S.feed.slice(); for (var k in ui.profiles) all = all.concat(ui.profiles[k].items || []);
     for (var i = 0; i < all.length; i++) { var ps = all[i].photos || []; for (var j = 0; j < ps.length; j++) if (ps[j].id === id) return { ph: ps[j], it: all[i] }; }
     var pots0 = ((S.bank && S.bank.pots) || []).concat((S.bank && S.bank.customPots) || []);
-    var holders = all.concat(pots0);
+    var holders = all.concat(pots0, S.bets || []);
     for (var ci = 0; ci < holders.length; ci++) {
       var cs = holders[ci].comments || [];
       for (var cj = 0; cj < cs.length; cj++) { var cp = cs[cj].photos || []; for (var ck = 0; ck < cp.length; ck++) if (cp[ck].id === id) return { ph: cp[ck], it: { id: cs[cj].id, pid: cp[ck].pid }, cm: cs[cj] }; }
@@ -924,6 +924,9 @@ h2.h{font-size:18px}
     } else if (bt.canVoid) {
       h += '<button class="link" style="text-align:left;color:var(--dim)" data-a="betResolve" data-id="' + esc(bt.id) + '" data-k="void">Call it off (nobody else is in yet)</button>';
     }
+    var cms = bt.comments || [];
+    h += '<div class="col" style="gap:10px"><span class="lab">Comments' + (cms.length ? ' (' + cms.length + ')' : '') + '</span><div class="cm" style="border-top:0;padding-top:0">' +
+      (cms.length ? cms.map(function (c) { return cmHTML(c, 'cDel'); }).join('') : '<p class="sub">No comments yet. Talk some trash.</p>') + cmBox(bt.id) + '</div></div>';
     return sheetWrap('Side bet', h, '');
   }
   function sideBetsSection() {
@@ -1466,6 +1469,7 @@ h2.h{font-size:18px}
       var c = { id: cid, pid: S.me.pid, text: t, ts: new Date().toISOString(), pending: true, photos: photo ? [{ id: 'tmp_ph' + Date.now(), pid: S.me.pid, src: photo }] : [] };
       findItem(id).forEach(function (it) { it.comments = (it.comments || []).concat([c]); });
       var pt = potById(id); if (pt) pt.comments = (pt.comments || []).concat([c]);
+      var bc = betOf(id); if (bc) bc.comments = (bc.comments || []).concat([c]);
       render();
       queue('comment', { id: cid, target: id, text: t, photo: photo ? '1' : '' });
       if (photo) queue('photoAdd', { target: cid, data: photo });
@@ -1483,6 +1487,7 @@ h2.h{font-size:18px}
       if (!confirm('Delete this comment?')) return;
       S.feed.forEach(function (it) { it.comments = (it.comments || []).filter(function (c) { return c.id !== id; }); });
       for (var k in ui.profiles) (ui.profiles[k].items || []).forEach(function (it) { it.comments = (it.comments || []).filter(function (c) { return c.id !== id; }); });
+      (S.bets || []).forEach(function (b) { b.comments = (b.comments || []).filter(function (c) { return c.id !== id; }); });
       render(); queue('deleteComment', { id: id });
     },
     delW: function (id) {

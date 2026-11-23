@@ -26,7 +26,7 @@
 // This ONE file replaces Code.gs, webapp.gs, appsheet_v6_bridge.gs and Index.html.
 // ================================================================
 
-var V7_VERSION = '8.8';
+var V7_VERSION = '8.9';
 var SB_GRACE_MIN = 90;            // side bets: how long after a period ends before a "didn't happen" is paid out (lets late WHOOP data arrive)
 var APP_SYNC_COOLDOWN_MIN = 5;   // the in-app Sync button pulls WHOOP at most this often, for the whole group
 
@@ -2369,6 +2369,7 @@ function feedItems_(me, ctx, onlyPid, limit) {
         if (csv_(b.hidden).indexOf(me.pid) !== -1) return;
         items.push({ id: b.bet_id, kind: 'e', type: 'bet', pid: b.proposer, ts: b.created_at, title: b.prompt, body: '', betId: b.bet_id });
       } else {
+        alias[b.bet_id] = 'r' + b.bet_id;
         items.push({ id: 'r' + b.bet_id, kind: 'e', type: b.status === 'void' ? 'bet_off' : 'bet_result', pid: '', ts: b.settled_at, title: b.result_title, body: b.result_body, betId: b.bet_id });
       }
     });
@@ -3195,7 +3196,17 @@ function apiBetResolve_(me, req, ctx) {
 function sbState_(me, ctx, data) {
   var nowMs = Date.now(), out = [], done = 0;
   var betPics = {};
-  readTable_(TAB.PHOTOS).forEach(function(x) { if (str_(x.target_id).indexOf('sb_') === 0) (betPics[x.target_id] = betPics[x.target_id] || []).push({ id: x.photo_id, fileId: x.file_id, pid: x.participant_id, ts: x.created_at }); });
+  var cmtPics = {}, betTalk = {};
+  readTable_(TAB.PHOTOS).forEach(function(x) {
+    var t = str_(x.target_id), ph = { id: x.photo_id, fileId: x.file_id, pid: x.participant_id, ts: x.created_at };
+    if (t.indexOf('sb_') === 0) (betPics[t] = betPics[t] || []).push(ph);
+    else if (t.indexOf('c_') === 0) (cmtPics[t] = cmtPics[t] || []).push(ph);
+  });
+  // The bet's comment thread: comments on its feed card (open bet) and on its result card, in one list.
+  readTable_(TAB.COMMENTS).forEach(function(c) {
+    var t = str_(c.target_id).replace(/^rsb_/, 'sb_');
+    if (t.indexOf('sb_') === 0) (betTalk[t] = betTalk[t] || []).push({ id: c.comment_id, pid: c.participant_id, text: c.text, ts: c.created_at, photos: cmtPics[c.comment_id] || [] });
+  });
   var bets = data.bets.slice().sort(function(a, b) { return String(b.created_at).localeCompare(String(a.created_at)) || b._row - a._row; });
   bets.forEach(function(bet) {
     var hidden = csv_(bet.hidden);
@@ -3237,6 +3248,7 @@ function sbState_(me, ctx, data) {
       endText: bet.type === 'custom' ? '' : timeLabel_(Date.parse(bet.period_end), ctx.tz),
       phase: open ? (nowMs < closeMs ? 'open' : 'waiting') : bet.status,
       hiddenFrom: hidden, legacy: legacy, photos: betPics[bet.bet_id] || [],
+      comments: (betTalk[bet.bet_id] || []).sort(function(a, b) { return String(a.ts).localeCompare(String(b.ts)); }),
       sides: sides, pairs: m.pairs, matched: m.matchedTotal,
       openSide: open ? m.openSide : '', openAmount: open ? m.openAmount : 0,
       mine: mine, canBet: sbCanBet_(bet, me.pid, wagers, nowMs, open ? m : null), progress: progress,
