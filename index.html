@@ -95,6 +95,7 @@ button.sd{border-color:var(--lime)}
 .cm>div{font-size:14px}
 .tag.strava{color:#FC4C02;border-color:rgba(252,76,2,.45)}
 .tag.peloton{color:#FF5A66;border-color:rgba(223,28,47,.55)}
+.pbar{height:5px;border-radius:3px;background:#22262C;overflow:hidden}.pbar i{display:block;height:100%;background:var(--lime)}
 .ct{font-size:12px;color:var(--dim);margin-left:6px;white-space:nowrap}
 .cph{margin-top:6px;display:flex;gap:6px}.cph button{border:0;padding:0;background:#22262C;border-radius:10px;overflow:hidden;display:block;width:160px;max-width:60%}.cph img{width:100%;aspect-ratio:4/3;object-fit:cover;display:block}
 .field{display:flex;align-items:center;gap:8px;background:var(--bg);border:1px solid var(--line2);border-radius:14px;padding:0 14px;min-height:50px}
@@ -541,11 +542,13 @@ h2.h{font-size:18px}
       return '<button data-a="photoView" data-id="' + esc(ph.id) + '" aria-label="Open photo"><img src="' + esc(photoSrc(ph, ps.length === 1 ? 1000 : 600)) + '" alt="" loading="lazy"></button>';
     }).join('') + '</div>';
   }
+  // Every row of every badge's history (they carry comments and photos like any card).
+  function histEntries() { var out = []; var H = S.badgeHist || {}; Object.keys(H).forEach(function (k) { out = out.concat(H[k]); }); return out; }
   function findPhoto(id) {
     var all = S.feed.slice(); for (var k in ui.profiles) all = all.concat(ui.profiles[k].items || []);
     for (var i = 0; i < all.length; i++) { var ps = all[i].photos || []; for (var j = 0; j < ps.length; j++) if (ps[j].id === id) return { ph: ps[j], it: all[i] }; }
     var pots0 = ((S.bank && S.bank.pots) || []).concat((S.bank && S.bank.customPots) || []);
-    var holders = all.concat(pots0, S.bets || []);
+    var holders = all.concat(pots0, S.bets || [], histEntries());
     for (var ci = 0; ci < holders.length; ci++) {
       var cs = holders[ci].comments || [];
       for (var cj = 0; cj < cs.length; cj++) { var cp = cs[cj].photos || []; for (var ck = 0; ck < cp.length; ck++) if (cp[ck].id === id) return { ph: cp[ck], it: { id: cs[cj].id, pid: cp[ck].pid }, cm: cs[cj] }; }
@@ -1410,6 +1413,24 @@ h2.h{font-size:18px}
     h += b.holders.length ? '<div class="list">' + b.holders.map(function (x) {
       return '<div>' + avatar(x.pid) + '<span class="grow">' + nameBtn(x.pid) + '</span><span class="sub">' + esc(x.detail) + '</span></div>';
     }).join('') + '</div>' : '<p class="sub">Nobody yet. It is up for grabs.</p>';
+    // The whole ranking behind the badge.
+    var rk = b.ranking || [];
+    if (rk.length) {
+      h += '<div class="col" style="gap:8px"><span class="lab">' + (b.kind === 'milestone' ? 'Closest to it' : b.kind === 'weekly' ? 'Last week\'s ranking' : 'Leaderboard') + '</span><div class="list">' +
+        rk.slice(0, b.kind === 'milestone' ? 8 : 30).map(function (r, i) {
+          return '<div><span class="sub" style="width:22px">' + (b.kind === 'milestone' ? i + 1 : r.rank) + '</span>' + avatar(r.pid) + '<div class="col grow" style="gap:3px">' + nameBtn(r.pid, r.pid === S.me.pid ? ' (you)' : '') +
+            (b.kind === 'milestone' ? '<div class="pbar"><i style="width:' + Math.round(r.pct * 100) + '%"></i></div>' : '') + '</div><span class="sub" style="text-align:right;max-width:46%">' + esc(r.detail) + '</span></div>';
+        }).join('') + '</div></div>';
+    }
+    // History: every time it was earned or changed hands, with comments and photos under each.
+    var hist = (S.badgeHist || {})[id] || [];
+    h += '<div class="col" style="gap:8px"><span class="lab">History' + (hist.length ? '   ' + hist.length : '') + '</span>' + (hist.length ? '<div class="list">' + hist.map(function (e) {
+      var n = (e.comments || []).length, open = !!ui.open[e.id];
+      return '<div style="flex-direction:column;align-items:stretch;gap:6px"><div class="row" style="gap:10px;align-items:flex-start"><span class="ic" style="flex:none;color:' + (e.type === 'badge_loss' ? 'var(--red)' : 'var(--lime)') + '">' + IC.medal + '</span>' +
+        '<div class="col grow" style="gap:2px"><b>' + esc(e.title) + '</b><span class="sub">' + esc(e.body) + '</span><span class="sub" style="font-size:12px">' + esc(ago(e.ts)) + '</span></div></div>' +
+        '<div class="acts"><button class="pill" data-a="toggleC" data-id="' + esc(e.id) + '">' + IC.msg + '<span>' + (n ? n + (n === 1 ? ' comment' : ' comments') : 'Comment') + '</span></button></div>' +
+        (open ? '<div class="cm">' + (e.comments || []).map(function (c) { return cmHTML(c, 'cDel'); }).join('') + cmBox(e.id) + '</div>' : '') + '</div>';
+    }).join('') + '</div>' : '<p class="sub">Nothing yet. When this changes hands it shows up here, and everyone can comment or add a photo.</p>') + '</div>';
     return sheetWrap(b.name, h, '');
   }
 
@@ -1496,6 +1517,7 @@ h2.h{font-size:18px}
       findItem(id).forEach(function (it) { it.comments = (it.comments || []).concat([c]); });
       var pt = potById(id); if (pt) pt.comments = (pt.comments || []).concat([c]);
       var bc = betOf(id); if (bc) bc.comments = (bc.comments || []).concat([c]);
+      histEntries().forEach(function (e) { if (e.id === id) e.comments = (e.comments || []).concat([c]); });
       render();
       queue('comment', { id: cid, target: id, text: t, photo: photo ? '1' : '' });
       if (photo) queue('photoAdd', { target: cid, data: photo });
@@ -1514,6 +1536,7 @@ h2.h{font-size:18px}
       S.feed.forEach(function (it) { it.comments = (it.comments || []).filter(function (c) { return c.id !== id; }); });
       for (var k in ui.profiles) (ui.profiles[k].items || []).forEach(function (it) { it.comments = (it.comments || []).filter(function (c) { return c.id !== id; }); });
       (S.bets || []).forEach(function (b) { b.comments = (b.comments || []).filter(function (c) { return c.id !== id; }); });
+      histEntries().forEach(function (e) { e.comments = (e.comments || []).filter(function (c) { return c.id !== id; }); });
       render(); queue('deleteComment', { id: id });
     },
     delW: function (id) {

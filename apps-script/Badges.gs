@@ -18,6 +18,8 @@
 //                      week closes. Use the s.lastWeek... numbers below.
 //   kind: 'milestone'  Anyone who qualifies has it.
 //                        earned: function(s) { return text if earned, or '' if not; }
+//                        progress: (optional) function(s) { return { v: where he is, t: the target, text: 'shown beside the bar' }; }
+//                                  gives the badge page a "closest" list. Leave it out if there is no number to count toward.
 //
 // "s" IS ONE PERSON'S SEASON. You can use any of these:
 //   s.name            last name
@@ -117,42 +119,50 @@ var BADGE_LIST = [
   {
     id: 'perfect', name: 'Perfect Season', kind: 'milestone',
     desc: 'Compliant every week so far (at least 4 weeks).',
-    earned: function(s) { return s.missed === 0 && s.complete >= 4 ? s.complete + ' for ' + s.complete : ''; }
+    earned: function(s) { return s.missed === 0 && s.complete >= 4 ? s.complete + ' for ' + s.complete : ''; },
+    progress: function(s) { return s.missed === 0 ? { v: s.complete, t: 4, text: s.complete + ' of 4 weeks, none missed' } : null; }
   },
   {
     id: 'iron4', name: 'Iron Streak Bronze', kind: 'milestone',
     desc: '4 compliant weeks in a row.',
-    earned: function(s) { return s.longest >= 4 ? 'Longest streak: ' + s.longest + ' weeks' : ''; }
+    earned: function(s) { return s.longest >= 4 ? 'Longest streak: ' + s.longest + ' weeks' : ''; },
+    progress: function(s) { return { v: s.longest, t: 4, text: 'Longest streak ' + s.longest + ' of 4 weeks' }; }
   },
   {
     id: 'iron8', name: 'Iron Streak Silver', kind: 'milestone',
     desc: '8 compliant weeks in a row.',
-    earned: function(s) { return s.longest >= 8 ? 'Longest streak: ' + s.longest + ' weeks' : ''; }
+    earned: function(s) { return s.longest >= 8 ? 'Longest streak: ' + s.longest + ' weeks' : ''; },
+    progress: function(s) { return { v: s.longest, t: 8, text: 'Longest streak ' + s.longest + ' of 8 weeks' }; }
   },
   {
     id: 'iron12', name: 'Iron Streak Gold', kind: 'milestone',
     desc: '12 compliant weeks in a row.',
-    earned: function(s) { return s.longest >= 12 ? 'Longest streak: ' + s.longest + ' weeks' : ''; }
+    earned: function(s) { return s.longest >= 12 ? 'Longest streak: ' + s.longest + ' weeks' : ''; },
+    progress: function(s) { return { v: s.longest, t: 12, text: 'Longest streak ' + s.longest + ' of 12 weeks' }; }
   },
   {
     id: 'club50', name: 'Fifty Club', kind: 'milestone',
     desc: '50 workouts this season.',
-    earned: function(s) { return s.total >= 50 ? s.total + ' workouts' : ''; }
+    earned: function(s) { return s.total >= 50 ? s.total + ' workouts' : ''; },
+    progress: function(s) { return { v: s.total, t: 50, text: s.total + ' of 50 workouts' }; }
   },
   {
     id: 'club100', name: 'Century Club', kind: 'milestone',
     desc: '100 workouts this season.',
-    earned: function(s) { return s.total >= 100 ? s.total + ' workouts' : ''; }
+    earned: function(s) { return s.total >= 100 ? s.total + ' workouts' : ''; },
+    progress: function(s) { return { v: s.total, t: 100, text: s.total + ' of 100 workouts' }; }
   },
   {
     id: 'overachiever', name: 'Overachiever', kind: 'milestone',
     desc: '5 or more workouts in one week.',
-    earned: function(s) { return s.overWeek ? 'First in Week ' + s.overWeek : ''; }
+    earned: function(s) { return s.overWeek ? 'First in Week ' + s.overWeek : ''; },
+    progress: function(s) { return { v: s.bestWeek, t: 5, text: 'Best week: ' + s.bestWeek + ' of 5 workouts' }; }
   },
   {
     id: 'daily_grind', name: 'Daily Grind', kind: 'milestone',
     desc: 'A workout every day of a week.',
-    earned: function(s) { return s.dailyWeek ? 'First in Week ' + s.dailyWeek : ''; }
+    earned: function(s) { return s.dailyWeek ? 'First in Week ' + s.dailyWeek : ''; },
+    progress: function(s) { return { v: s.bestWeek, t: 7, text: 'Best week: ' + s.bestWeek + ' of 7 days' }; }
   },
   {
     id: 'early_bird', name: 'Early Bird', kind: 'milestone',
@@ -172,7 +182,8 @@ var BADGE_LIST = [
   {
     id: 'strain100', name: 'Strain 100', kind: 'milestone',
     desc: '100+ total day strain in one week (Strain challenge).',
-    earned: function(s) { return s.strain100Week ? 'First in Week ' + s.strain100Week : ''; }
+    earned: function(s) { return s.strain100Week ? 'First in Week ' + s.strain100Week : ''; },
+    progress: function(s) { return s.inStrain ? { v: s.strainBestWeek, t: 100, text: 'Best week: ' + s.strainBestWeek.toFixed(1) + ' of 100 strain' } : null; }
   }
 
 ];

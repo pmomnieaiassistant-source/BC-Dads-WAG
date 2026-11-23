@@ -26,7 +26,7 @@
 // This ONE file replaces Code.gs, webapp.gs, appsheet_v6_bridge.gs and Index.html.
 // ================================================================
 
-var V7_VERSION = '9.7';
+var V7_VERSION = '9.8';
 var SB_GRACE_MIN = 90;            // side bets: how long after a period ends before a "didn't happen" is paid out (lets late WHOOP data arrive)
 var APP_SYNC_COOLDOWN_MIN = 5;   // the in-app Sync button pulls WHOOP at most this often, for the whole group
 
@@ -2714,7 +2714,7 @@ function computeBadges_(ctx, bank, ch) {
   var badges = [];
   list.forEach(function(b) {
     try {
-      var holders = [];
+      var holders = [], ranking = [];
       if (b.kind === 'title' || b.kind === 'weekly') {
         var rows = [], max = null;
         pids.forEach(function(pid) {
@@ -2724,13 +2724,25 @@ function computeBadges_(ctx, bank, ch) {
           if (max === null || (b.lowest ? v < max : v > max)) max = v;      // lowest: true = the smallest score wins
         });
         rows.forEach(function(r) { if (r.v === max) holders.push({ pid: r.pid, detail: String(b.detail ? b.detail(stats[r.pid]) : r.v) }); });
+        // The whole ranking behind the badge (best first; ties share a rank).
+        rows.sort(function(x, y) { return b.lowest ? x.v - y.v : y.v - x.v; });
+        var rk = 0, prev = null;
+        ranking = rows.map(function(r, i) {
+          if (prev === null || r.v !== prev) { rk = i + 1; prev = r.v; }
+          var det = ''; try { det = String(b.detail ? b.detail(stats[r.pid]) : r.v); } catch (e) { det = String(r.v); }
+          return { pid: r.pid, rank: rk, detail: det };
+        });
       } else {
         pids.forEach(function(pid) {
           var d = b.earned(stats[pid]);
           if (d) holders.push({ pid: pid, detail: d === true ? '' : String(d) });
+          else if (b.progress) {
+            try { var pr = b.progress(stats[pid]); if (pr && pr.t > 0) ranking.push({ pid: pid, v: Number(pr.v) || 0, t: pr.t, detail: String(pr.text || ''), pct: Math.max(0, Math.min(1, (Number(pr.v) || 0) / pr.t)) }); } catch (e) {}
+          }
         });
+        ranking.sort(function(x, y) { return y.pct - x.pct; });
       }
-      badges.push({ id: String(b.id), name: String(b.name), kind: b.kind === 'title' ? 'title' : b.kind === 'weekly' ? 'weekly' : 'milestone', desc: String(b.desc || ''), holders: holders });
+      badges.push({ id: String(b.id), name: String(b.name), kind: b.kind === 'title' ? 'title' : b.kind === 'weekly' ? 'weekly' : 'milestone', desc: String(b.desc || ''), holders: holders, ranking: ranking });
     } catch (err) {
       Logger.log('Badge "' + (b && b.id) + '" skipped: ' + err.message);
     }
@@ -2741,6 +2753,20 @@ function computeBadges_(ctx, bank, ch) {
     out[pid] = { total: s.total, complete: s.complete, played: s.played, streak: s.streak, longest: s.longest, fines: s.fines };
   });
   return { stats: out, badges: badges };
+}
+
+// Every time a badge changed hands or was earned (the feed's badge posts), newest first, with the comments and photos on each.
+function badgeHistory_(ctx) {
+  var cmtPics = {}, talk = {}, out = {};
+  readTable_(TAB.PHOTOS).forEach(function(x) { var t = str_(x.target_id); if (t.indexOf('c_') === 0) (cmtPics[t] = cmtPics[t] || []).push({ id: x.photo_id, fileId: x.file_id, pid: x.participant_id, ts: x.created_at }); });
+  readTable_(TAB.COMMENTS).forEach(function(c) { var t = str_(c.target_id); if (t.indexOf('badge_') === 0) (talk[t] = talk[t] || []).push({ id: c.comment_id, pid: c.participant_id, text: c.text, ts: c.created_at, photos: cmtPics[c.comment_id] || [] }); });
+  readTable_(TAB.EVENTS).forEach(function(e) {
+    if (str_(e.deleted) || str_(e.type).indexOf('badge_') !== 0 || !str_(e.week)) return;
+    (out[e.week] = out[e.week] || []).push({ id: e.event_id, ts: e.created_at, type: e.type, pid: e.participant_id, title: e.title, body: e.body,
+      comments: (talk[e.event_id] || []).sort(function(a, b) { return String(a.ts).localeCompare(String(b.ts)); }) });
+  });
+  Object.keys(out).forEach(function(k) { out[k].sort(function(a, b) { return String(b.ts).localeCompare(String(a.ts)); }); out[k] = out[k].slice(0, 40); });
+  return out;
 }
 
 function buildState_(me, ctx) { return withReadCache_(function() { return buildStateCore_(me, ctx); }); }
@@ -2781,7 +2807,8 @@ function buildStateCore_(me, ctx) {
     chals: chalState_(me, ctx),
     challenges: ch,
     stats: extras.stats,
-    badges: extras.badges
+    badges: extras.badges,
+    badgeHist: badgeHistory_(ctx)
   };
 }
 
