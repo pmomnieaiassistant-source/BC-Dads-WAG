@@ -26,7 +26,7 @@
 // This ONE file replaces Code.gs, webapp.gs, appsheet_v6_bridge.gs and Index.html.
 // ================================================================
 
-var V7_VERSION = '9.8';
+var V7_VERSION = '9.9';
 var SB_GRACE_MIN = 90;            // side bets: how long after a period ends before a "didn't happen" is paid out (lets late WHOOP data arrive)
 var APP_SYNC_COOLDOWN_MIN = 5;   // the in-app Sync button pulls WHOOP at most this often, for the whole group
 
@@ -41,14 +41,14 @@ var TAB = {
   CYCLES: 'Cycles', EVENTS: 'Feed_Events', COMMENTS: 'Comments',
   REACTIONS: 'Reactions', POTS: 'Bet_Pots', BANK: 'Bank_Log',
   MEMBERS: 'Challenge_Members', WEIGHTS: 'Weights', RUN_LOG: 'Run_Log',
-  TRACKER: 'Tracker', BETS: 'Side_Bets', WAGERS: 'Side_Wagers', FEEDBACK: 'Feedback', UPDATES: 'Updates', PHOTOS: 'Photos', CPOTS: 'Custom_Pots', CHAL: 'Custom_Challenges', CHK: 'Challenge_Checkins'
+  TRACKER: 'Tracker', BETS: 'Side_Bets', WAGERS: 'Side_Wagers', FEEDBACK: 'Feedback', UPDATES: 'Updates', PHOTOS: 'Photos', CPOTS: 'Custom_Pots', CHAL: 'Custom_Challenges', CHK: 'Challenge_Checkins', SCRUB: 'Scrub_Log'
 };
 
 var HEAD = {
   Workouts: ['workout_id', 'participant_id', 'workout_date', 'workout_start', 'workout_end',
              'duration_minutes', 'strain', 'source', 'activity', 'effort', 'note', 'created_at', 'status', 'edited_at',
              'avg_hr', 'max_hr', 'kilojoules', 'distance_m', 'zones', 'link_to', 'entered_by',
-             'title', 'description', 'device', 'avg_watts', 'max_watts', 'output_kj', 'cadence', 'calories', 'elevation_m'],   // the last row: Strava (Peloton class, output, watts...)
+             'title', 'description', 'device', 'avg_watts', 'max_watts', 'output_kj', 'cadence', 'calories', 'elevation_m', 'merged_into'],   // the last row: Strava (Peloton class, output, watts...)
   Cycles: ['cycle_key', 'participant_id', 'cycle_date', 'strain', 'updated_at'],
   Feed_Events: ['event_id', 'created_at', 'type', 'participant_id', 'week', 'title', 'body', 'deleted'],
   Comments: ['comment_id', 'target_id', 'participant_id', 'text', 'created_at'],
@@ -57,6 +57,7 @@ var HEAD = {
   Custom_Pots: ['pot_id', 'created_at', 'created_by', 'name', 'description', 'entry', 'status', 'members', 'joined', 'winners', 'end_amount', 'settled_by', 'settled_at'],
   Custom_Challenges: ['chal_id', 'created_at', 'created_by', 'name', 'rules', 'weeks', 'fine', 'start_date', 'status', 'members', 'joined'],
   Challenge_Checkins: ['checkin_id', 'chal_id', 'participant_id', 'week', 'answer', 'created_at'],
+  Scrub_Log: ['log_id', 'created_at', 'participant_id', 'status', 'primary_id', 'duplicate_ids', 'confidence', 'reason', 'fingerprint'],
   Photos: ['photo_id', 'target_id', 'participant_id', 'file_id', 'created_at'],
   Bet_Pots: ['week', 'end_amount', 'members', 'settled_by', 'settled_at'],
   Bank_Log: ['entry_id', 'created_at', 'type', 'participant_id', 'week', 'amount', 'note', 'status', 'confirmed_by', 'confirmed_at'],
@@ -480,6 +481,7 @@ function loadCtx_() {
   ctx.workouts.forEach(function(w) {
     w._date = isoOf_(w.workout_date, tz);
     w._ok = isCompliant_(w, ctx.minTime, ctx.minEffort);
+    if (str_(w.merged_into)) { w._merged = true; w._ok = false; return; }   // a duplicate of another workout (Claude's scrub): the main one counts
     if (!w._ok || !w._date || !ctx.byPid[w.participant_id]) return;
     if (!ctx.credits[w.participant_id]) ctx.credits[w.participant_id] = {};
     var day = ctx.credits[w.participant_id];
@@ -1024,11 +1026,13 @@ function runSync_(mode, fullWhoop) {
     try { sms = syncSms_(ctx); } catch (smsErr) { sms = { added: 0, note: 'sms error: ' + smsErr.message }; }
 
     ctx = loadCtx_();
+    var scrub = { asked: 0, merged: 0, suggested: 0, error: '' };
+    try { scrub = scrubRun_(ctx); if (scrub.merged) ctx = loadCtx_(); } catch (scErr) { scrub.error = scErr.message; }
     var events = generateEvents_(ctx);
     try { events += settleSideBets_(ctx); } catch (sbErr) { Logger.log('side bets: ' + sbErr.message); }
     try { events += generateBadgeEvents_(ctx).length; } catch (bErr) { Logger.log('badge events: ' + bErr.message); }
     writeTrackerTab_(ctx);
-    var note = 'whoop_new=' + whoop.added + '; whoop_updated=' + whoop.changed + '; strava_new=' + strava.added + '; sms_new=' + sms.added +
+    var note = 'whoop_new=' + whoop.added + '; whoop_updated=' + whoop.changed + '; strava_new=' + strava.added + '; scrub=' + (scrub.error ? 'skipped (' + scrub.error + ')' : scrub.merged + ' merged of ' + scrub.asked) + '; sms_new=' + sms.added +
       (sms.note ? ' (' + sms.note + ')' : '') + '; events=' + events +
       '; seconds=' + Math.round((Date.now() - started) / 1000) + '; ' + whoop.summary.concat(strava.summary).join(' | ');
     logRun_(mode, whoop.added + strava.added + sms.added, note);
@@ -1185,7 +1189,7 @@ function handleApi_(req) {
   if (action === 'adminUsage') {
     var actx = loadCtx_();
     if (!isAdmin_(me, actx.settings)) return { ok: false, error: 'Only the admin can see this.' };
-    return { ok: true, usage: buildUsage_(actx), feedback: feedbackList_() };
+    return { ok: true, usage: buildUsage_(actx), feedback: feedbackList_(), scrub: scrubList_(actx), scrubKey: !!scrubKey_(), scrubMode: scrubMode_(actx) };
   }
 
   // Small actions that never touch the tracker data: no recalculation, quick answer.
@@ -1209,7 +1213,7 @@ function handleApi_(req) {
     logWorkout: apiLogWorkout_, editWorkout: apiEditWorkout_, deleteWorkout: apiDeleteWorkout_,
     react: apiReact_, comment: apiComment_, deleteComment: apiDeleteComment_,
     settle: apiSettle_, payment: apiPayment_, join: apiJoin_, leave: apiLeave_, weight: apiWeight_,
-    betPropose: apiBetPropose_, betPlace: apiBetPlace_, betResolve: apiBetResolve_, paymentDecide: apiPaymentDecide_, potCreate: apiPotCreate_, potJoin: apiPotJoin_, potLeave: apiPotLeave_, potSettle: apiPotSettle_, potCancel: apiPotCancel_, chalCreate: apiChalCreate_, chalJoin: apiChalJoin_, chalLeave: apiChalLeave_, chalAnswer: apiChalAnswer_, chalCancel: apiChalCancel_, adminDelete: apiAdminDelete_, photoAdd: apiPhotoAdd_, photoDelete: apiPhotoDelete_, post: apiPost_, deletePost: apiDeletePost_
+    betPropose: apiBetPropose_, betPlace: apiBetPlace_, betResolve: apiBetResolve_, paymentDecide: apiPaymentDecide_, potCreate: apiPotCreate_, potJoin: apiPotJoin_, potLeave: apiPotLeave_, potSettle: apiPotSettle_, potCancel: apiPotCancel_, chalCreate: apiChalCreate_, chalJoin: apiChalJoin_, chalLeave: apiChalLeave_, chalAnswer: apiChalAnswer_, chalCancel: apiChalCancel_, scrubUndo: apiScrubUndo_, adminDelete: apiAdminDelete_, photoAdd: apiPhotoAdd_, photoDelete: apiPhotoDelete_, post: apiPost_, deletePost: apiDeletePost_
   };
   if (action === 'syncNow') return apiSyncNow_(me, profilePid);
   if (!handlers[action]) return { ok: false, error: 'Unknown action: ' + action };
@@ -2313,8 +2317,12 @@ function feedItems_(me, ctx, onlyPid, limit) {
   // each workout on its own, so a logged workout still counts even if the WHOOP session was under the strain minimum.
   // Override in the Sheet: put a WHOOP workout id (or "none" to never merge) in the logged workout's link_to column.
   var whoopBy = {}, loggedBy = {}, stravaBy = {}, appBy = {};
+  // Workouts the scrub folded into another (merged_into): hidden, with their data shown on the main workout's card.
+  var byIdAll = {}, dupOf = {}, forcedSec = [];
+  ctx.workouts.forEach(function(w) { byIdAll[w.workout_id] = w; });
+  ctx.workouts.forEach(function(w) { var m = str_(w.merged_into); if (m && byIdAll[m] && m !== w.workout_id) { dupOf[w.workout_id] = byIdAll[m]; forcedSec.push(w); } });
   ctx.workouts.forEach(function(w) {
-    if (!w._date) return;
+    if (!w._date || dupOf[w.workout_id]) return;
     var k = w.participant_id + '|' + w._date, sr = str_(w.source).toLowerCase();
     if (sr === 'whoop') (whoopBy[k] = whoopBy[k] || []).push(w);
     else if (sr === 'strava') (stravaBy[k] = stravaBy[k] || []).push(w);
@@ -2325,6 +2333,7 @@ function feedItems_(me, ctx, onlyPid, limit) {
   // Strava copies of WHOOP workouts (device WHOOP) fold into the WHOOP workout of the same day and similar length; they only add data
   // (distance, power...) and a Strava tag when they have something WHOOP does not.
   var echoInto = {}, echoOf = {};
+  var dupAlias = {};
   Object.keys(stravaBy).forEach(function(k) {
     var pairs = [];
     stravaBy[k].forEach(function(sw) {
@@ -2390,6 +2399,17 @@ function feedItems_(me, ctx, onlyPid, limit) {
     });
   });
 
+  // Hand each folded-in workout's data to its main workout (WHOOP numbers, Strava details), and hide the duplicate.
+  forcedSec.forEach(function(sec) {
+    var prim = dupOf[sec.workout_id], ss = str_(sec.source).toLowerCase(), ps = str_(prim.source).toLowerCase();
+    dupAlias[sec.workout_id] = prim.workout_id;
+    if (ss === 'whoop' && ps !== 'whoop') { if (!withWhoop[prim.workout_id]) { withWhoop[prim.workout_id] = sec; mergedInto[sec.workout_id] = prim; } }
+    else if (ss === 'strava') {
+      if (ps === 'whoop') { if (!echoOf[prim.workout_id]) { echoOf[prim.workout_id] = sec; echoInto[sec.workout_id] = prim; } }
+      else if (ps !== 'strava') { if (!withStrava[prim.workout_id]) { withStrava[prim.workout_id] = sec; stravaInto[sec.workout_id] = prim; } }
+    }
+  });
+
   // Texted entries stay as before: hidden when a WHOOP post (or another counted log) covers the same day.
   // The WHOOP post "owns" the day: the highest-strain unmerged one that counts.
   var primary = {}, hasReal = {};
@@ -2409,6 +2429,7 @@ function feedItems_(me, ctx, onlyPid, limit) {
     if (onlyPid && w.participant_id !== onlyPid) return;
     var src = str_(w.source).toLowerCase();
     var key = w.participant_id + '|' + w._date;
+    if (dupAlias[w.workout_id]) { alias[w.workout_id] = dupAlias[w.workout_id]; return; }   // folded into another workout by the scrub
     if (src === 'whoop' && mergedInto[w.workout_id]) { alias[w.workout_id] = mergedInto[w.workout_id].workout_id; return; }   // shown on the logged workout's card
     if (src === 'strava' && echoInto[w.workout_id]) { var tw = echoInto[w.workout_id]; alias[w.workout_id] = mergedInto[tw.workout_id] ? mergedInto[tw.workout_id].workout_id : tw.workout_id; return; }   // a copy of a WHOOP workout
     if (src === 'strava' && stravaInto[w.workout_id]) { alias[w.workout_id] = stravaInto[w.workout_id].workout_id; return; }   // folded into the logged workout
@@ -3429,6 +3450,7 @@ function onOpen() {
     .addItem('Full WHOOP re-pull (whole season)', 'menuFullResync')
     .addItem('Store WHOOP client secret', 'storeWhoopClientSecret')
     .addItem('Clear a WHOOP connection', 'clearWhoopConnection')
+    .addItem('Run workout scrub now (Claude)', 'menuScrubNow')
     .addItem('Store Strava client secret', 'storeStravaClientSecret')
     .addItem('Make app links', 'showAppLinks')
     .addToUi();

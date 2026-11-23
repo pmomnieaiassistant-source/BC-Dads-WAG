@@ -974,6 +974,7 @@ h2.h{font-size:18px}
     function item(a, title, sub) { return '<button data-a="' + a + '"><span class="col grow" style="gap:2px"><b>' + title + '</b><span class="sub" style="font-size:13px">' + sub + '</span></span>' + CHEV + '</button>'; }
     return sheetWrap('Admin', '<div class="list amenu">' +
       item('adminUsage', 'Usage', 'Who uses the app, who never has, who went back to texting, how often') +
+      item('adminScrub', 'Workout matching', A ? (A.scrubKey ? 'Claude merges duplicate workouts (' + (A.scrubMode || 'apply') + '). Undo any match here' : 'Needs an Anthropic key. Tap for setup') : 'Claude merges duplicate workouts') +
       item('adminFeedback', 'Feedback inbox' + (A ? ' (' + nf + ')' : ''), 'What people sent from "Talk shit and make this app better"') +
       item('adminSettings', 'Settings', 'Rules, weeks off, people, Venmo') +
       item('adminShare', 'Share the app', 'Text someone their personal link') + '</div>' +
@@ -1010,6 +1011,20 @@ h2.h{font-size:18px}
     return sheetWrap('Edit post', '<p class="sub">Changes the words only. Nobody is told you edited it.</p><div class="col" style="gap:10px"><textarea class="txt" id="epText" rows="7" maxlength="1000">' + esc(E.text || '') + '</textarea></div>', '<button class="btn" data-a="editPostSave">Save</button>');
   }
   var U_LABEL = { texting: 'BACK TO TEXTING', never: 'NEVER USED', lapsed: 'LAPSED', active: 'USES THE APP' };
+  function scrubSheet() {
+    var A = ui.adm; if (!A) return sheetWrap('Workout matching', '<div class="empty">Loading\u2026</div>', '');
+    var h = '<p class="sub">After each hourly sync, Claude looks at workouts that the normal rules cannot pair (logged on the wrong day, a text next to a WHOOP workout, two logs of one session, a Peloton ride recorded three ways) and folds the duplicates into one card that counts once. Nothing is deleted, and every match can be undone here.</p>';
+    if (!A.scrubKey) h += '<div class="card col" style="gap:8px"><b>One-time setup</b><p class="sub">Create an API key at console.anthropic.com, then in the Apps Script project open Project Settings, Script properties, and add <b>ANTHROPIC_API_KEY</b>. Matching starts on the next hourly sync. Optional Settings tab rows: <b>scrub_mode</b> (apply, suggest or off) and <b>scrub_model</b>.</p></div>';
+    else h += '<p class="sub">Mode: <b>' + esc(A.scrubMode) + '</b>' + (A.scrubMode === 'suggest' ? ' (only suggests, nothing is merged)' : A.scrubMode === 'off' ? '' : ' (applies matches it is sure about)') + '</p>';
+    var L = A.scrub || [];
+    h += L.length ? '<div class="list">' + L.map(function (l) {
+      var tag = { merged: ['MERGED', 'lime'], suggested: ['SUGGESTED', ''], skipped: ['SKIPPED', ''], undone: ['UNDONE', ''] }[l.status] || [l.status, ''];
+      return '<div style="flex-direction:column;align-items:stretch;gap:6px"><div class="row between"><b>' + esc(l.who) + '</b><span class="tag' + (tag[1] ? ' ' + tag[1] : '') + '">' + tag[0] + '</span></div>' +
+        '<span class="sub">Kept: ' + esc(l.primary) + '</span><span class="sub">Folded in: ' + esc(l.dups.join('; ')) + '</span>' + (l.reason ? '<span class="sub" style="font-size:12px">' + esc(l.reason) + '</span>' : '') +
+        '<div class="row between"><span class="sub" style="font-size:12px">' + esc(ago(l.ts)) + '</span>' + (l.status === 'merged' ? '<button class="pill" data-a="scrubUndo" data-id="' + esc(l.id) + '">Undo</button>' : '') + '</div></div>';
+    }).join('') + '</div>' : '<p class="sub">No matches yet.</p>';
+    return sheetWrap('Workout matching', h, '');
+  }
   function usageSheet() {
     var A = ui.adm; if (!A) return sheetWrap('Usage', '<div class="empty">Loading\u2026</div>', '');
     var rows = A.usage.filter(function (r) { return r.active; }), n = rows.length;
@@ -1448,7 +1463,7 @@ h2.h{font-size:18px}
     if (t.t === 'bet') grabBet();
     var body = document.getElementById('sheetBody');
     var y = body && el.getAttribute('data-key') === sheetKey(t) ? body.scrollTop : 0;
-    el.innerHTML = t.t === 'newchal' ? newChalSheet() : t.t === 'chal' ? chalSheet(t.id) : t.t === 'newpot' ? newPotSheet() : t.t === 'share' ? shareSheet() : t.t === 'settings' ? settingsSheet() : t.t === 'editpost' ? editPostSheet() : t.t === 'pot' ? potSheet(t.id) : t.t === 'deposit' ? depositSheet() : t.t === 'admin' ? adminSheet() : t.t === 'usage' ? usageSheet() : t.t === 'fbInbox' ? feedbackInboxSheet() : t.t === 'betsDone' ? betsDoneSheet() : t.t === 'post' ? postSheet() : t.t === 'photo' ? photoSheet(t.id) : t.t === 'news' ? newsSheet() : t.t === 'newsAll' ? newsAllSheet() : t.t === 'feedback' ? feedbackSheet() : t.t === 'log' ? logSheet() : t.t === 'bet' ? betSheet() : t.t === 'betd' ? betDetailSheet(t.id) : t.t === 'week' ? weekSheet(t.week) : t.t === 'profile' ? profileSheet(t.pid) : badgeSheet(t.id, t.pid);
+    el.innerHTML = t.t === 'newchal' ? newChalSheet() : t.t === 'chal' ? chalSheet(t.id) : t.t === 'newpot' ? newPotSheet() : t.t === 'share' ? shareSheet() : t.t === 'settings' ? settingsSheet() : t.t === 'editpost' ? editPostSheet() : t.t === 'pot' ? potSheet(t.id) : t.t === 'deposit' ? depositSheet() : t.t === 'admin' ? adminSheet() : t.t === 'usage' ? usageSheet() : t.t === 'scrub' ? scrubSheet() : t.t === 'fbInbox' ? feedbackInboxSheet() : t.t === 'betsDone' ? betsDoneSheet() : t.t === 'post' ? postSheet() : t.t === 'photo' ? photoSheet(t.id) : t.t === 'news' ? newsSheet() : t.t === 'newsAll' ? newsAllSheet() : t.t === 'feedback' ? feedbackSheet() : t.t === 'log' ? logSheet() : t.t === 'bet' ? betSheet() : t.t === 'betd' ? betDetailSheet(t.id) : t.t === 'week' ? weekSheet(t.week) : t.t === 'profile' ? profileSheet(t.pid) : badgeSheet(t.id, t.pid);
     el.setAttribute('data-key', sheetKey(t));
     if (y) document.getElementById('sheetBody').scrollTop = y;
   }
@@ -1802,10 +1817,15 @@ h2.h{font-size:18px}
       ui.adm = null; pushSheet({ t: 'admin' });
       api('adminUsage', {}, true).then(function (j) {
         if (!j) { toast('Could not load the admin data.', true); return; }
-        ui.adm = { usage: j.usage || [], feedback: j.feedback || [] }; renderSheet();
+        ui.adm = { usage: j.usage || [], feedback: j.feedback || [], scrub: j.scrub || [], scrubKey: !!j.scrubKey, scrubMode: j.scrubMode || 'apply' }; renderSheet();
       });
     },
     adminUsage: function () { pushSheet({ t: 'usage' }); },
+    adminScrub: function () { pushSheet({ t: 'scrub' }); },
+    scrubUndo: function (id) {
+      if (!confirm('Put these back as separate workouts? Claude will not merge them again.')) return;
+      api('scrubUndo', { id: id }).then(function (j) { if (j) { api('adminUsage', {}, true).then(function (k) { if (k && ui.adm) { ui.adm.scrub = k.scrub || []; renderSheet(); } }); } });
+    },
     adminFeedback: function () { pushSheet({ t: 'fbInbox' }); },
     betNew: function () { ui.bet = freshBet(); pushSheet({ t: 'bet' }); },
     bset: function (id, el) {
