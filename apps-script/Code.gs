@@ -26,7 +26,7 @@
 // This ONE file replaces Code.gs, webapp.gs, appsheet_v6_bridge.gs and Index.html.
 // ================================================================
 
-var V7_VERSION = '9.5';
+var V7_VERSION = '9.6';
 var SB_GRACE_MIN = 90;            // side bets: how long after a period ends before a "didn't happen" is paid out (lets late WHOOP data arrive)
 var APP_SYNC_COOLDOWN_MIN = 5;   // the in-app Sync button pulls WHOOP at most this often, for the whole group
 
@@ -433,8 +433,15 @@ function weekLabel_(startIso, wk) {
   return 'Week ' + wk + ' (' + mdLabel_(ws) + '-' + mdLabel_(addDays_(ws, 6)) + ')';
 }
 
+// A Strava activity that WHOOP itself posted to Strava (device WHOOP) is the same workout as the WHOOP one, so it never counts on its own.
+function isWhoopEcho_(w) { return str_(w.source).toLowerCase() === 'strava' && /whoop/i.test(str_(w.device)); }
+// Peloton classes reach Strava with Peloton in the device, the title or the description; the app shows those as Peloton, not Strava.
+function isPelotonRow_(w) { return /peloton/i.test(str_(w.device) + ' ' + str_(w.title) + ' ' + str_(w.description)); }
+// Does a Strava activity bring something WHOOP does not have (distance, climbing, power, cadence)?
+function stravaAddsData_(w) { return num_(w.distance_m, 0) > 0 || num_(w.elevation_m, 0) > 0 || num_(w.avg_watts, 0) > 0 || num_(w.cadence, 0) > 0 || num_(w.output_kj, 0) > 0; }
 function isCompliant_(w, minTime, minEffort) {
   var src = str_(w.source).toLowerCase();
+  if (isWhoopEcho_(w)) return false;
   var dur = parseFloat(w.duration_minutes);
   if (src === 'whoop') {
     var strain = parseFloat(w.strain);
@@ -2315,6 +2322,26 @@ function feedItems_(me, ctx, onlyPid, limit) {
   });
   // Strava first: an activity that is the same session as a workout logged in the app (same day, similar length, or the same
   // kind of workout) folds into that logged card, adding its distance and heart rate. Unmatched Strava activities stay as their own card.
+  // Strava copies of WHOOP workouts (device WHOOP) fold into the WHOOP workout of the same day and similar length; they only add data
+  // (distance, power...) and a Strava tag when they have something WHOOP does not.
+  var echoInto = {}, echoOf = {};
+  Object.keys(stravaBy).forEach(function(k) {
+    var pairs = [];
+    stravaBy[k].forEach(function(sw) {
+      if (!isWhoopEcho_(sw)) return;
+      var sd = parseFloat(sw.duration_minutes);
+      (whoopBy[k] || []).forEach(function(ww) {
+        var wd = parseFloat(ww.duration_minutes), r = !isNaN(sd) && !isNaN(wd) && sd > 0 && wd > 0 ? Math.min(sd, wd) / Math.max(sd, wd) : 0;
+        if (r >= 0.6) pairs.push({ sw: sw, ww: ww, cost: Math.abs(sd - wd) });
+      });
+    });
+    pairs.sort(function(a, b) { return a.cost - b.cost; });
+    pairs.forEach(function(pr) {
+      if (echoInto[pr.sw.workout_id] || echoOf[pr.ww.workout_id]) return;
+      echoInto[pr.sw.workout_id] = pr.ww; echoOf[pr.ww.workout_id] = pr.sw;
+    });
+    stravaBy[k] = stravaBy[k].filter(function(sw) { return !echoInto[sw.workout_id]; });
+  });
   var stravaInto = {}, withStrava = {};
   function sameKind_(a, b) { var x = str_(a).toLowerCase(), y = str_(b).toLowerCase(); return !!x && !!y && (x === y || x.indexOf(y) !== -1 || y.indexOf(x) !== -1); }
   Object.keys(stravaBy).forEach(function(k) {
@@ -2383,12 +2410,14 @@ function feedItems_(me, ctx, onlyPid, limit) {
     var src = str_(w.source).toLowerCase();
     var key = w.participant_id + '|' + w._date;
     if (src === 'whoop' && mergedInto[w.workout_id]) { alias[w.workout_id] = mergedInto[w.workout_id].workout_id; return; }   // shown on the logged workout's card
+    if (src === 'strava' && echoInto[w.workout_id]) { var tw = echoInto[w.workout_id]; alias[w.workout_id] = mergedInto[tw.workout_id] ? mergedInto[tw.workout_id].workout_id : tw.workout_id; return; }   // a copy of a WHOOP workout
     if (src === 'strava' && stravaInto[w.workout_id]) { alias[w.workout_id] = stravaInto[w.workout_id].workout_id; return; }   // folded into the logged workout
     if (src === 'sms' && primary[key]) { alias[w.workout_id] = primary[key].workout_id; return; }
     if (src === 'whoop' && !w._ok && !showAll) return;
     if (src === 'sms' && hasReal[key]) return;
     var mineThisWeek = w.participant_id === me.pid && weekOf_(w._date, ctx.startIso) === ctx.currentWeek;
     var ww = withWhoop[w.workout_id], sv = src === 'strava' ? w : withStrava[w.workout_id];
+    var echo = echoOf[(src === 'whoop' ? w : ww || {}).workout_id] || null;   // a Strava copy of this card's WHOOP workout
     var detailRow = src === 'whoop' ? w : (ww || (src === 'strava' ? w : sv || null));
     items.push({
       id: w.workout_id, kind: 'w', pid: w.participant_id, ts: feedTime_(ww || w, ctx.tz),
@@ -2398,8 +2427,19 @@ function feedItems_(me, ctx, onlyPid, limit) {
       effort: str_(w.effort), note: str_(w.note), ok: !!w._ok, editedAt: str_(w.edited_at),
       detail: (function() { var d = detailRow ? whoopDetail_(detailRow) : null, sd = sv && sv !== detailRow ? whoopDetail_(sv) : null;
         if (d && sd) { ['miles', 'avgHr', 'maxHr', 'kcal', 'title', 'desc', 'device', 'watts', 'maxWatts', 'output', 'cadence', 'elev'].forEach(function(k) { if (!d[k] && sd[k]) d[k] = sd[k]; }); }
+        var ed = echo && stravaAddsData_(echo) ? whoopDetail_(echo) : null;   // distance, power, climbing from a Strava copy of the WHOOP workout (not its WHOOP text)
+        if (ed) { d = d || { avgHr: 0, maxHr: 0, kcal: 0, miles: 0, zones: [], sport: str_(w.activity), minutes: null }; ['miles', 'watts', 'maxWatts', 'output', 'cadence', 'elev'].forEach(function(k) { if (!d[k] && ed[k]) d[k] = ed[k]; }); }
         return d || sd; })(),
-      strava: !!sv, whoop: !!ww,
+      strava: !!sv || !!(echo && stravaAddsData_(echo)), whoop: !!ww || src === 'whoop',
+      tags: (function() {
+        var t = [], whoopHere = src === 'whoop' || !!ww;
+        if (src === 'sms') t.push('text'); else if (src !== 'whoop' && src !== 'strava') t.push('logged');
+        var from = src === 'strava' ? w : sv;
+        if (from) t.push(isPelotonRow_(from) ? 'peloton' : 'strava');
+        else if (echo && stravaAddsData_(echo)) t.push(isPelotonRow_(echo) ? 'peloton' : 'strava');
+        if (whoopHere || (src !== 'whoop' && src !== 'strava' && ww)) t.push('whoop');
+        return t;
+      })(),
       canDelete: src === 'app' && mineThisWeek,
       canEdit: mineThisWeek || adminMe ? (src === 'whoop' || src === 'strava' ? 'note' : (src === 'app' || adminMe ? 'full' : '')) : ''
     });

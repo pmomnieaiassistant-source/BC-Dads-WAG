@@ -94,6 +94,7 @@ button.sd{border-color:var(--lime)}
 .cm{border-top:1px solid var(--line);padding-top:12px;display:flex;flex-direction:column;gap:10px}
 .cm>div{font-size:14px}
 .tag.strava{color:#FC4C02;border-color:rgba(252,76,2,.45)}
+.tag.peloton{color:#FF5A66;border-color:rgba(223,28,47,.55)}
 .ct{font-size:12px;color:var(--dim);margin-left:6px;white-space:nowrap}
 .cph{margin-top:6px;display:flex;gap:6px}.cph button{border:0;padding:0;background:#22262C;border-radius:10px;overflow:hidden;display:block;width:160px;max-width:60%}.cph img{width:100%;aspect-ratio:4/3;object-fit:cover;display:block}
 .field{display:flex;align-items:center;gap:8px;background:var(--bg);border:1px solid var(--line2);border-radius:14px;padding:0 14px;min-height:50px}
@@ -515,7 +516,9 @@ h2.h{font-size:18px}
   function workoutCard(it) {
     var merged = it.source !== 'whoop' && it.source !== 'sms' && !!it.detail;
     // One tag for each place the data came from: logged in the app (or texted), Strava, WHOOP.
-    var badge = (it.source === 'sms' ? '<span class="tag">TEXT</span>' : it.source !== 'whoop' && it.source !== 'strava' ? '<span class="tag lime">LOGGED</span>' : '') +
+    var TG = { logged: '<span class="tag lime">LOGGED</span>', text: '<span class="tag">TEXT</span>', strava: '<span class="tag strava">STRAVA</span>', peloton: '<span class="tag peloton">PELOTON</span>', whoop: '<span class="tag">WHOOP</span>' };
+    var badge = it.tags ? it.tags.map(function (k) { return TG[k] || ''; }).join('') :
+      (it.source === 'sms' ? '<span class="tag">TEXT</span>' : it.source !== 'whoop' && it.source !== 'strava' ? '<span class="tag lime">LOGGED</span>' : '') +
       (it.source === 'strava' || it.strava ? '<span class="tag strava">STRAVA</span>' : '') +
       (it.source === 'whoop' || it.whoop || (merged && it.strain !== null && it.strain !== undefined) ? '<span class="tag">WHOOP</span>' : '');
     var second = it.source === 'whoop' || (it.strain !== null && it.strain !== undefined) ? ['Strain', it.strain === null || it.strain === undefined ? '--' : it.strain.toFixed(1)] : it.source === 'strava' ? ['Distance', it.detail && it.detail.miles ? it.detail.miles + ' mi' : '--'] : ['Effort', it.effort || '--'];
