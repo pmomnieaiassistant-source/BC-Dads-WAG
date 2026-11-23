@@ -26,7 +26,7 @@
 // This ONE file replaces Code.gs, webapp.gs, appsheet_v6_bridge.gs and Index.html.
 // ================================================================
 
-var V7_VERSION = '9.0';
+var V7_VERSION = '9.1';
 var SB_GRACE_MIN = 90;            // side bets: how long after a period ends before a "didn't happen" is paid out (lets late WHOOP data arrive)
 var APP_SYNC_COOLDOWN_MIN = 5;   // the in-app Sync button pulls WHOOP at most this often, for the whole group
 
@@ -1068,7 +1068,7 @@ function doGet(e) {
       var sw = null;
       readPeople_().forEach(function(p) { if (p.key && p.key === str_(params.connect)) sw = p; });
       if (!sw) return page_('Link not recognized', '#FF8A80', '<p>Open the app from your personal link and try again.</p>');
-      if (!stravaClientId_()) return page_('Strava is not set up yet', '#FFB86B', '<p>Ask the admin to set up Strava for the group.</p>');
+      if (!stravaClientId_() || !stravaAllowed_(sw.pid)) return page_('Strava is not set up yet', '#FFB86B', '<p>Strava is not open to everyone yet. Ask the admin.</p>');
       return page_('Connect Strava', '#FC4C02',
         '<p>Connecting as <strong>' + htmlEscape_(sw.name) + '</strong>.</p>' +
         '<p><a style="display:inline-block;background:#FC4C02;color:#fff;font-weight:bold;padding:14px 22px;border-radius:999px;text-decoration:none;" href="' +
@@ -3437,9 +3437,17 @@ function stravaDead_(pid, reason) {
   t.dead = true; t.dead_reason = truncate_(reason, 300); t.dead_at = nowIso_(); stravaSave_(pid, t);
   logRun_('strava_needs_reconnect', 0, 'participant_id=' + pid + ' | ' + reason);
 }
-// 'off' (not set up for the group), 'none', 'connected' or 'reconnect'.
+// Who sees Connect Strava: Settings > strava_who = "all", or a list of participant ids. Blank = the admins only (while it is tried out).
+// Anyone already connected keeps syncing either way.
+function stravaAllowed_(pid) {
+  var st = readSettings_(), who = str_(st.strava_who);
+  if (/^(all|everyone)$/i.test(who)) return true;
+  return csv_(who || st.admins || DEFAULTS.admins || '').indexOf(str_(pid)) !== -1;
+}
+// 'off' (not set up, or not offered to this person yet), 'none', 'connected' or 'reconnect'.
 function stravaStatus_(pid) {
   if (!stravaClientId_()) return 'off';
+  if (!stravaTokens_(pid) && !stravaAllowed_(pid)) return 'off';
   var t = stravaTokens_(pid);
   return !t ? 'none' : t.dead ? 'reconnect' : 'connected';
 }
