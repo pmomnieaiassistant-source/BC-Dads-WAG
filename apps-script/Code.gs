@@ -26,7 +26,7 @@
 // This ONE file replaces Code.gs, webapp.gs, appsheet_v6_bridge.gs and Index.html.
 // ================================================================
 
-var V7_VERSION = '9.6';
+var V7_VERSION = '9.7';
 var SB_GRACE_MIN = 90;            // side bets: how long after a period ends before a "didn't happen" is paid out (lets late WHOOP data arrive)
 var APP_SYNC_COOLDOWN_MIN = 5;   // the in-app Sync button pulls WHOOP at most this often, for the whole group
 
@@ -2426,16 +2426,19 @@ function feedItems_(me, ctx, onlyPid, limit) {
       strain: ww ? (ww.strain === '' ? null : num_(ww.strain, null)) : (w.strain === '' ? null : num_(w.strain, null)),
       effort: str_(w.effort), note: str_(w.note), ok: !!w._ok, editedAt: str_(w.edited_at),
       detail: (function() { var d = detailRow ? whoopDetail_(detailRow) : null, sd = sv && sv !== detailRow ? whoopDetail_(sv) : null;
+        var plain = function(x) { if (x) { delete x.title; delete x.desc; delete x.device; } return x; };   // WHOOP's own text on a Strava copy adds nothing
+        if (sv && isWhoopEcho_(sv)) { plain(sd); if (detailRow === sv) plain(d); }
         if (d && sd) { ['miles', 'avgHr', 'maxHr', 'kcal', 'title', 'desc', 'device', 'watts', 'maxWatts', 'output', 'cadence', 'elev'].forEach(function(k) { if (!d[k] && sd[k]) d[k] = sd[k]; }); }
         var ed = echo && stravaAddsData_(echo) ? whoopDetail_(echo) : null;   // distance, power, climbing from a Strava copy of the WHOOP workout (not its WHOOP text)
         if (ed) { d = d || { avgHr: 0, maxHr: 0, kcal: 0, miles: 0, zones: [], sport: str_(w.activity), minutes: null }; ['miles', 'watts', 'maxWatts', 'output', 'cadence', 'elev'].forEach(function(k) { if (!d[k] && ed[k]) d[k] = ed[k]; }); }
         return d || sd; })(),
-      strava: !!sv || !!(echo && stravaAddsData_(echo)), whoop: !!ww || src === 'whoop',
+      strava: (!!sv && !isWhoopEcho_(sv)) || !!(echo && stravaAddsData_(echo)), whoop: !!ww || src === 'whoop' || !!(sv && isWhoopEcho_(sv)),
       tags: (function() {
         var t = [], whoopHere = src === 'whoop' || !!ww;
         if (src === 'sms') t.push('text'); else if (src !== 'whoop' && src !== 'strava') t.push('logged');
         var from = src === 'strava' ? w : sv;
-        if (from) t.push(isPelotonRow_(from) ? 'peloton' : 'strava');
+        if (from && isWhoopEcho_(from)) { if (stravaAddsData_(from)) t.push(isPelotonRow_(from) ? 'peloton' : 'strava'); whoopHere = true; }   // WHOOP's own copy: a WHOOP card
+        else if (from) t.push(isPelotonRow_(from) ? 'peloton' : 'strava');
         else if (echo && stravaAddsData_(echo)) t.push(isPelotonRow_(echo) ? 'peloton' : 'strava');
         if (whoopHere || (src !== 'whoop' && src !== 'strava' && ww)) t.push('whoop');
         return t;
