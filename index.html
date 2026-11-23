@@ -1206,10 +1206,12 @@ h2.h{font-size:18px}
   // Strava: an optional second way in, for anyone who records on Strava (shown once the admin has set it up).
   function stravaCard() {
     var st = S.me.strava; if (!st || st === 'off') return '';
-    var lab = { connected: ['Connected', 'pos'], reconnect: ['Disconnected \u00b7 reconnect', 'neg'], none: ['Not connected', ''] }[st] || ['', ''];
+    var lab = { connected: ['Connected', 'pos'], upgrade: ['Connected', 'pos'], reconnect: ['Disconnected \u00b7 reconnect', 'neg'], none: ['Not connected', ''] }[st] || ['', ''];
     return '<section class="card col" style="gap:12px"><div class="row between"><b>Strava</b><b class="' + lab[1] + '">' + lab[0] + '</b></div>' +
-      '<p class="sub">' + (st === 'connected' ? 'Your Strava activities post on their own, about once an hour. 30+ minutes counts toward the week. "Only You" activities stay private.' : 'Record on Strava? Connect it and your activities post on their own. 30+ minutes counts toward the week.') + '</p>' +
-      (st === 'connected' ? '<button class="btn ghost" data-a="stravaOff">Disconnect Strava</button>' : '<button class="btn" style="background:#FC4C02;color:#fff" data-a="stravaOn">' + (st === 'reconnect' ? 'Reconnect Strava' : 'Connect Strava') + '</button>') +
+      '<p class="sub">' + (st === 'connected' ? 'Your Strava activities post on their own, about once an hour, including ones set to "Only You". 30+ minutes counts toward the week.'
+        : st === 'upgrade' ? 'Reconnect once so activities set to "Only You" on Strava post too. Until then only your shared activities come in.'
+        : 'Record on Strava? Connect it and all your activities post on their own, including "Only You" ones. 30+ minutes counts toward the week.') + '</p>' +
+      (st === 'connected' ? '<button class="btn ghost" data-a="stravaOff">Disconnect Strava</button>' : '<button class="btn" style="background:#FC4C02;color:#fff" data-a="stravaOn">' + (st === 'reconnect' || st === 'upgrade' ? 'Reconnect Strava' : 'Connect Strava') + '</button>' + (st === 'upgrade' ? '<button class="link" style="color:var(--dim)" data-a="stravaOff">Disconnect Strava</button>' : '')) +
       '<span class="sub" style="font-size:11px;text-align:right">Powered by Strava</span></section>';
   }
   function viewMe() {

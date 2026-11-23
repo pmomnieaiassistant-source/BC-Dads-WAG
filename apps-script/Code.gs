@@ -26,7 +26,7 @@
 // This ONE file replaces Code.gs, webapp.gs, appsheet_v6_bridge.gs and Index.html.
 // ================================================================
 
-var V7_VERSION = '9.2';
+var V7_VERSION = '9.3';
 var SB_GRACE_MIN = 90;            // side bets: how long after a period ends before a "didn't happen" is paid out (lets late WHOOP data arrive)
 var APP_SYNC_COOLDOWN_MIN = 5;   // the in-app Sync button pulls WHOOP at most this often, for the whole group
 
@@ -1073,7 +1073,7 @@ function doGet(e) {
         '<p>Connecting as <strong>' + htmlEscape_(sw.name) + '</strong>.</p>' +
         '<p><a style="display:inline-block;background:#FC4C02;color:#fff;font-weight:bold;padding:14px 22px;border-radius:999px;text-decoration:none;" href="' +
         htmlEscape_(stravaAuthUrl_(sw.pid)) + '">Continue to Strava</a></p>' +
-        '<p style="color:#9AA1AC;font-size:14px;">Log in to Strava and tap Authorize. Activities you share with followers or everyone will post to the group. "Only You" activities stay private.</p>');
+        '<p style="color:#9AA1AC;font-size:14px;">Log in to Strava, leave both activity boxes ticked, and tap Authorize. All your activities post to the group, including ones set to "Only You" on Strava.</p>');
     }
     if (str_(params.code) || str_(params.error) || str_(params.state).indexOf('enroll_') === 0) {
       return handleWhoopCallback_(params);
@@ -3417,7 +3417,7 @@ function showWhoopStatus() {
 // (source "strava") and count like a logged workout: 30+ minutes (Settings > min_time). Set up once:
 //   1. strava.com/settings/api: create an app. Authorization Callback Domain = script.google.com
 //   2. Settings tab: strava_client_id = the Client ID.  3. Sheet menu: BC Dads > Store Strava client secret.
-// Only activities the person shares with followers or everyone are read (scope activity:read), never "Only You" ones.
+// All of the person's activities are read, including ones set to "Only You" on Strava (scope activity:read_all).
 // ----------------------------------------------------------------
 var STRAVA_AUTH_URL = 'https://www.strava.com/oauth/authorize', STRAVA_TOKEN_URL = 'https://www.strava.com/oauth/token', STRAVA_API = 'https://www.strava.com/api/v3';
 
@@ -3445,15 +3445,16 @@ function stravaAllowed_(pid) {
   if (/^(all|everyone)$/i.test(who)) return true;
   return csv_(who || st.admins || DEFAULTS.admins || '').indexOf(str_(pid)) !== -1;
 }
-// 'off' (not set up, or not offered to this person yet), 'none', 'connected' or 'reconnect'.
+// 'off' (not set up, or not offered to this person yet), 'none', 'connected', 'upgrade' (linked before "Only You" activities were
+// included: still syncs, but should reconnect once) or 'reconnect'.
 function stravaStatus_(pid) {
   if (!stravaClientId_()) return 'off';
   if (!stravaTokens_(pid) && !stravaAllowed_(pid)) return 'off';
   var t = stravaTokens_(pid);
-  return !t ? 'none' : t.dead ? 'reconnect' : 'connected';
+  return !t ? 'none' : t.dead ? 'reconnect' : str_(t.scope).indexOf('activity:read_all') === -1 ? 'upgrade' : 'connected';
 }
 function stravaAuthUrl_(pid) {
-  var q = { client_id: stravaClientId_(), redirect_uri: getRedirectUri_(), response_type: 'code', approval_prompt: 'auto', scope: 'activity:read', state: 'strava_' + str_(pid) };
+  var q = { client_id: stravaClientId_(), redirect_uri: getRedirectUri_(), response_type: 'code', approval_prompt: 'auto', scope: 'activity:read_all', state: 'strava_' + str_(pid) };
   return STRAVA_AUTH_URL + '?' + Object.keys(q).map(function(k) { return encodeURIComponent(k) + '=' + encodeURIComponent(q[k]); }).join('&');
 }
 function stravaTokenReq_(payload) {
@@ -3490,7 +3491,7 @@ function handleStravaCallback_(params) {
   }
   if (!code || !pid) return page_('BC Dads WAG', '#F2F3F5', '<p>This page finishes Strava connections.</p>' + appLinkHtml_());
   if (str_(params.scope).split(',').indexOf('activity:read') === -1 && str_(params.scope).split(',').indexOf('activity:read_all') === -1) {
-    return page_('One more box to tick', '#FFB86B', '<p>The app needs to see your activities. Open the app, tap Connect Strava again, and leave "View data about your activities" ticked.</p>' + appLinkHtml_());
+    return page_('One more box to tick', '#FFB86B', '<p>The app needs to see your activities. Open the app, tap Connect Strava again, and leave the activity boxes ticked.</p>' + appLinkHtml_());
   }
   var lock = LockService.getScriptLock();
   lock.waitLock(25000);
@@ -3507,7 +3508,7 @@ function handleStravaCallback_(params) {
         (/limit|capacity/i.test(r.body) ? '<p>The group\'s Strava app has reached its athlete limit. Tell the admin.</p>' : '<p>Open the app and tap Connect Strava to try again.</p>') + appLinkHtml_());
     }
     var j = JSON.parse(r.body);
-    stravaSave_(pid, { access_token: j.access_token, refresh_token: j.refresh_token, expires_at: j.expires_at, athlete: j.athlete ? String(j.athlete.id) : '', needs_backfill: true, saved_at: nowIso_() });
+    stravaSave_(pid, { access_token: j.access_token, refresh_token: j.refresh_token, expires_at: j.expires_at, athlete: j.athlete ? String(j.athlete.id) : '', scope: str_(params.scope), needs_backfill: true, saved_at: nowIso_() });
     logRun_('strava_connected', 0, 'participant_id=' + pid);
     return page_('Connected', '#FC4C02', '<p>Strava is linked. Your activities will show up in the app within the hour.</p><p style="color:#9AA1AC;">You can close this page now.</p>' + appLinkHtml_());
   } finally { try { lock.releaseLock(); } catch (e2) {} }
