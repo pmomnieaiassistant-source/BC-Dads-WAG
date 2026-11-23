@@ -26,7 +26,7 @@
 // This ONE file replaces Code.gs, webapp.gs, appsheet_v6_bridge.gs and Index.html.
 // ================================================================
 
-var V7_VERSION = '9.1';
+var V7_VERSION = '9.2';
 var SB_GRACE_MIN = 90;            // side bets: how long after a period ends before a "didn't happen" is paid out (lets late WHOOP data arrive)
 var APP_SYNC_COOLDOWN_MIN = 5;   // the in-app Sync button pulls WHOOP at most this often, for the whole group
 
@@ -3421,7 +3421,8 @@ function showWhoopStatus() {
 // ----------------------------------------------------------------
 var STRAVA_AUTH_URL = 'https://www.strava.com/oauth/authorize', STRAVA_TOKEN_URL = 'https://www.strava.com/oauth/token', STRAVA_API = 'https://www.strava.com/api/v3';
 
-function stravaClientId_() { return str_(readSettings_().strava_client_id); }
+// The Client ID from Settings > strava_client_id, or a script property STRAVA_CLIENT_ID (either works).
+function stravaClientId_() { return str_(readSettings_().strava_client_id) || str_(PropertiesService.getScriptProperties().getProperty('STRAVA_CLIENT_ID')); }
 function stravaSecret_() {
   var sec = str_(PropertiesService.getScriptProperties().getProperty('STRAVA_CLIENT_SECRET'));
   if (!sec) throw new Error('Strava client secret is missing. Use BC Dads > Store Strava client secret.');
