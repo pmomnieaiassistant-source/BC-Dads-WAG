@@ -26,7 +26,7 @@
 // This ONE file replaces Code.gs, webapp.gs, appsheet_v6_bridge.gs and Index.html.
 // ================================================================
 
-var V7_VERSION = '9.3';
+var V7_VERSION = '9.4';
 var SB_GRACE_MIN = 90;            // side bets: how long after a period ends before a "didn't happen" is paid out (lets late WHOOP data arrive)
 var APP_SYNC_COOLDOWN_MIN = 5;   // the in-app Sync button pulls WHOOP at most this often, for the whole group
 
@@ -2300,13 +2300,38 @@ function feedItems_(me, ctx, onlyPid, limit) {
   // (strain, heart rate, zones, calories). Merging never changes what counts toward the week: that is worked out from
   // each workout on its own, so a logged workout still counts even if the WHOOP session was under the strain minimum.
   // Override in the Sheet: put a WHOOP workout id (or "none" to never merge) in the logged workout's link_to column.
-  var whoopBy = {}, loggedBy = {};
+  var whoopBy = {}, loggedBy = {}, stravaBy = {}, appBy = {};
   ctx.workouts.forEach(function(w) {
     if (!w._date) return;
     var k = w.participant_id + '|' + w._date, sr = str_(w.source).toLowerCase();
     if (sr === 'whoop') (whoopBy[k] = whoopBy[k] || []).push(w);
-    else if (sr !== 'sms') (loggedBy[k] = loggedBy[k] || []).push(w);
+    else if (sr === 'strava') (stravaBy[k] = stravaBy[k] || []).push(w);
+    else if (sr !== 'sms') (appBy[k] = appBy[k] || []).push(w);
   });
+  // Strava first: an activity that is the same session as a workout logged in the app (same day, similar length, or the same
+  // kind of workout) folds into that logged card, adding its distance and heart rate. Unmatched Strava activities stay as their own card.
+  var stravaInto = {}, withStrava = {};
+  function sameKind_(a, b) { var x = str_(a).toLowerCase(), y = str_(b).toLowerCase(); return !!x && !!y && (x === y || x.indexOf(y) !== -1 || y.indexOf(x) !== -1); }
+  Object.keys(stravaBy).forEach(function(k) {
+    var pairs = [];
+    (appBy[k] || []).forEach(function(lw) {
+      if (str_(lw.link_to) === 'none') return;
+      var ld = parseFloat(lw.duration_minutes);
+      stravaBy[k].forEach(function(sw) {
+        var sd = parseFloat(sw.duration_minutes), close = !isNaN(ld) && !isNaN(sd) && sd > 0 && ld > 0 ? Math.min(ld, sd) / Math.max(ld, sd) : 0;
+        var kind = sameKind_(lw.activity, sw.activity);
+        if (close < 0.4 && !kind) return;
+        pairs.push({ lw: lw, sw: sw, cost: (kind ? 0 : 1000) + (isNaN(ld) || isNaN(sd) ? 500 : Math.abs(ld - sd)) });
+      });
+    });
+    pairs.sort(function(a, b) { return a.cost - b.cost; });
+    pairs.forEach(function(pr) {
+      if (withStrava[pr.lw.workout_id] || stravaInto[pr.sw.workout_id]) return;
+      stravaInto[pr.sw.workout_id] = pr.lw; withStrava[pr.lw.workout_id] = pr.sw;
+    });
+  });
+  Object.keys(appBy).forEach(function(k) { loggedBy[k] = appBy[k].slice(); });
+  Object.keys(stravaBy).forEach(function(k) { stravaBy[k].forEach(function(sw) { if (!stravaInto[sw.workout_id]) (loggedBy[k] = loggedBy[k] || []).push(sw); }); });
   var mergedInto = {}, withWhoop = {};
   Object.keys(loggedBy).forEach(function(k) {
     // Every logged/WHOOP pairing for the day, scored by how close the lengths are; the closest pairs are matched first.
@@ -2353,18 +2378,23 @@ function feedItems_(me, ctx, onlyPid, limit) {
     var src = str_(w.source).toLowerCase();
     var key = w.participant_id + '|' + w._date;
     if (src === 'whoop' && mergedInto[w.workout_id]) { alias[w.workout_id] = mergedInto[w.workout_id].workout_id; return; }   // shown on the logged workout's card
+    if (src === 'strava' && stravaInto[w.workout_id]) { alias[w.workout_id] = stravaInto[w.workout_id].workout_id; return; }   // folded into the logged workout
     if (src === 'sms' && primary[key]) { alias[w.workout_id] = primary[key].workout_id; return; }
     if (src === 'whoop' && !w._ok && !showAll) return;
     if (src === 'sms' && hasReal[key]) return;
     var mineThisWeek = w.participant_id === me.pid && weekOf_(w._date, ctx.startIso) === ctx.currentWeek;
-    var ww = withWhoop[w.workout_id], detailRow = src === 'whoop' ? w : (ww || (src === 'strava' ? w : null));
+    var ww = withWhoop[w.workout_id], sv = withStrava[w.workout_id];
+    var detailRow = src === 'whoop' ? w : (ww || (src === 'strava' ? w : sv || null));
     items.push({
       id: w.workout_id, kind: 'w', pid: w.participant_id, ts: feedTime_(ww || w, ctx.tz),
       date: w._date, source: src, activity: str_(w.activity),
       minutes: w.duration_minutes === '' ? null : Math.round(num_(w.duration_minutes, 0)),
       strain: ww ? (ww.strain === '' ? null : num_(ww.strain, null)) : (w.strain === '' ? null : num_(w.strain, null)),
       effort: str_(w.effort), note: str_(w.note), ok: !!w._ok, editedAt: str_(w.edited_at),
-      detail: detailRow ? whoopDetail_(detailRow) : null,
+      detail: (function() { var d = detailRow ? whoopDetail_(detailRow) : null, sd = sv && sv !== detailRow ? whoopDetail_(sv) : null;
+        if (d && sd) { if (!d.miles) d.miles = sd.miles; if (!d.avgHr) d.avgHr = sd.avgHr; if (!d.maxHr) d.maxHr = sd.maxHr; }
+        return d || sd; })(),
+      strava: !!sv,
       canDelete: src === 'app' && mineThisWeek,
       canEdit: mineThisWeek || adminMe ? (src === 'whoop' || src === 'strava' ? 'note' : (src === 'app' || adminMe ? 'full' : '')) : ''
     });

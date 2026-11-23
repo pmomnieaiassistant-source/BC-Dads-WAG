@@ -507,7 +507,7 @@ h2.h{font-size:18px}
   }
   function workoutCard(it) {
     var merged = it.source !== 'whoop' && it.source !== 'sms' && !!it.detail;
-    var badge = it.source === 'whoop' ? '<span class="tag">WHOOP</span>' : (it.source === 'sms' ? '<span class="tag">TEXT</span>' : it.source === 'strava' ? '<span class="tag strava">STRAVA</span>' : '<span class="tag lime">LOGGED</span>') + (merged && it.strain !== null && it.strain !== undefined ? '<span class="tag">WHOOP</span>' : '');
+    var badge = it.source === 'whoop' ? '<span class="tag">WHOOP</span>' : (it.source === 'sms' ? '<span class="tag">TEXT</span>' : it.source === 'strava' ? '<span class="tag strava">STRAVA</span>' : '<span class="tag lime">LOGGED</span>') + (it.strava ? '<span class="tag strava">STRAVA</span>' : '') + (merged && it.strain !== null && it.strain !== undefined ? '<span class="tag">WHOOP</span>' : '');
     var second = it.source === 'whoop' || (it.strain !== null && it.strain !== undefined) ? ['Strain', it.strain === null || it.strain === undefined ? '--' : it.strain.toFixed(1)] : it.source === 'strava' ? ['Distance', it.detail && it.detail.miles ? it.detail.miles + ' mi' : '--'] : ['Effort', it.effort || '--'];
     return '<article class="card col" style="gap:14px" id="p-' + esc(it.id) + '"><div class="row">' + avatar(it.pid) +
       '<div class="col grow" style="gap:1px">' + nameBtn(it.pid) + '<span class="sub" style="font-size:12px">' + esc(nice(it.activity || 'Workout')) + '   ' + esc(ago(it.ts)) + (it.editedAt ? '   edited ' + esc(ago(it.editedAt)) : '') + '</span></div><div class="row" style="gap:6px;flex:none">' + badge + '</div></div>' +
