@@ -93,6 +93,7 @@ button.sd{border-color:var(--lime)}
 .who svg{flex:none;color:var(--lime);margin-top:1px}
 .cm{border-top:1px solid var(--line);padding-top:12px;display:flex;flex-direction:column;gap:10px}
 .cm>div{font-size:14px}
+.tag.strava{color:#FC4C02;border-color:rgba(252,76,2,.45)}
 .ct{font-size:12px;color:var(--dim);margin-left:6px;white-space:nowrap}
 .cph{margin-top:6px;display:flex;gap:6px}.cph button{border:0;padding:0;background:#22262C;border-radius:10px;overflow:hidden;display:block;width:160px;max-width:60%}.cph img{width:100%;aspect-ratio:4/3;object-fit:cover;display:block}
 .field{display:flex;align-items:center;gap:8px;background:var(--bg);border:1px solid var(--line2);border-radius:14px;padding:0 14px;min-height:50px}
@@ -506,8 +507,8 @@ h2.h{font-size:18px}
   }
   function workoutCard(it) {
     var merged = it.source !== 'whoop' && it.source !== 'sms' && !!it.detail;
-    var badge = it.source === 'whoop' ? '<span class="tag">WHOOP</span>' : (it.source === 'sms' ? '<span class="tag">TEXT</span>' : '<span class="tag lime">LOGGED</span>') + (merged ? '<span class="tag">WHOOP</span>' : '');
-    var second = it.source === 'whoop' || (it.strain !== null && it.strain !== undefined) ? ['Strain', it.strain === null || it.strain === undefined ? '--' : it.strain.toFixed(1)] : ['Effort', it.effort || '--'];
+    var badge = it.source === 'whoop' ? '<span class="tag">WHOOP</span>' : (it.source === 'sms' ? '<span class="tag">TEXT</span>' : it.source === 'strava' ? '<span class="tag strava">STRAVA</span>' : '<span class="tag lime">LOGGED</span>') + (merged && it.strain !== null && it.strain !== undefined ? '<span class="tag">WHOOP</span>' : '');
+    var second = it.source === 'whoop' || (it.strain !== null && it.strain !== undefined) ? ['Strain', it.strain === null || it.strain === undefined ? '--' : it.strain.toFixed(1)] : it.source === 'strava' ? ['Distance', it.detail && it.detail.miles ? it.detail.miles + ' mi' : '--'] : ['Effort', it.effort || '--'];
     return '<article class="card col" style="gap:14px" id="p-' + esc(it.id) + '"><div class="row">' + avatar(it.pid) +
       '<div class="col grow" style="gap:1px">' + nameBtn(it.pid) + '<span class="sub" style="font-size:12px">' + esc(nice(it.activity || 'Workout')) + '   ' + esc(ago(it.ts)) + (it.editedAt ? '   edited ' + esc(ago(it.editedAt)) : '') + '</span></div><div class="row" style="gap:6px;flex:none">' + badge + '</div></div>' +
       (it.minutes === null ? '<p style="color:var(--soft)">' + (it.source === 'sms' ? 'Texted in a workout.' : 'Logged a workout.') + ' Week: ' + weekCount(it.pid) + '/' + S.rules.minDays + '</p>' :
@@ -1202,6 +1203,15 @@ h2.h{font-size:18px}
     }).catch(function () {});
   }
 
+  // Strava: an optional second way in, for anyone who records on Strava (shown once the admin has set it up).
+  function stravaCard() {
+    var st = S.me.strava; if (!st || st === 'off') return '';
+    var lab = { connected: ['Connected', 'pos'], reconnect: ['Disconnected \u00b7 reconnect', 'neg'], none: ['Not connected', ''] }[st] || ['', ''];
+    return '<section class="card col" style="gap:12px"><div class="row between"><b>Strava</b><b class="' + lab[1] + '">' + lab[0] + '</b></div>' +
+      '<p class="sub">' + (st === 'connected' ? 'Your Strava activities post on their own, about once an hour. 30+ minutes counts toward the week. "Only You" activities stay private.' : 'Record on Strava? Connect it and your activities post on their own. 30+ minutes counts toward the week.') + '</p>' +
+      (st === 'connected' ? '<button class="btn ghost" data-a="stravaOff">Disconnect Strava</button>' : '<button class="btn" style="background:#FC4C02;color:#fff" data-a="stravaOn">' + (st === 'reconnect' ? 'Reconnect Strava' : 'Connect Strava') + '</button>') +
+      '<span class="sub" style="font-size:11px;text-align:right">Powered by Strava</span></section>';
+  }
   function viewMe() {
     var w = { connected: ['Connected', 'pos'], reconnect: ['Disconnected   reconnect', 'neg'], none: ['Not connected', ''] }[S.me.whoop];
     var h = '<section class="card col" style="gap:12px"><div class="row">' + avatar(S.me.pid) + '<div class="col grow" style="gap:1px"><b style="font-size:18px">' + esc(S.me.name) + '</b><span class="sub">' + esc(S.week.label) + '</span></div></div>' +
@@ -1209,6 +1219,7 @@ h2.h{font-size:18px}
     h += '<section class="card col" style="gap:12px"><div class="row between"><b>WHOOP</b><b class="' + w[1] + '">' + w[0] + '</b></div>' +
       '<p class="sub">' + (S.me.whoop === 'connected' ? 'Your WHOOP workouts post on their own, about once an hour.' : 'Connect WHOOP and your workouts post on their own. No WHOOP? Just use Log workout, or keep texting.') + '</p>' +
       (S.me.whoop === 'connected' ? '' : '<button class="btn" data-a="connect">' + (S.me.whoop === 'reconnect' ? 'Reconnect WHOOP' : 'Connect WHOOP') + '</button>') + '</section>';
+    h += stravaCard();
     h += pushCard();
     if (S.me.admin) h += '<section class="card col" style="gap:10px"><div class="row between"><b>Admin</b><span class="sub" style="font-size:12px">Only you see this</span></div><button class="btn ghost" data-a="admin">Open admin</button></section>';
     h += '<section class="card col" style="gap:8px"><b>Put this app on your home screen</b><p class="sub"><b>iPhone:</b> open your personal link in Safari, tap Share, then "Add to Home Screen".<br><b>Android:</b> open it in Chrome, tap the menu, then "Add to Home screen".</p></section>';
@@ -1852,6 +1863,8 @@ h2.h{font-size:18px}
       ui.fb = t;
       api('feedback', { text: t }).then(function (j) { if (j) { ui.fb = ''; ACT.closeSheet(); } });
     },
+    stravaOn: function () { if (S.me.connectUrl) window.open(S.me.connectUrl + '&svc=strava', '_blank'); else toast('Strava connect is not set up yet.', true); },
+    stravaOff: function () { if (!confirm('Disconnect Strava? Workouts already posted stay.')) return; api('stravaOff', {}).then(function (j) { if (j) { S.me.strava = 'none'; render(); } }); },
     connect: function () { if (S.me.connectUrl) window.open(S.me.connectUrl, '_blank'); else toast('WHOOP connect is not set up yet.', true); }
   };
   document.addEventListener('click', function (e) {

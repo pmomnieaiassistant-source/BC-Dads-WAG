@@ -26,7 +26,7 @@
 // This ONE file replaces Code.gs, webapp.gs, appsheet_v6_bridge.gs and Index.html.
 // ================================================================
 
-var V7_VERSION = '8.9';
+var V7_VERSION = '9.0';
 var SB_GRACE_MIN = 90;            // side bets: how long after a period ends before a "didn't happen" is paid out (lets late WHOOP data arrive)
 var APP_SYNC_COOLDOWN_MIN = 5;   // the in-app Sync button pulls WHOOP at most this often, for the whole group
 
@@ -439,7 +439,7 @@ function isCompliant_(w, minTime, minEffort) {
     var strain = parseFloat(w.strain);
     return !isNaN(dur) && !isNaN(strain) && dur >= minTime && strain >= minEffort;
   }
-  if (src === 'app') return !isNaN(dur) && dur >= minTime;
+  if (src === 'app' || src === 'strava') return !isNaN(dur) && dur >= minTime;   // Strava has no strain, so it counts like a logged workout
   return true; // sms backup and legacy manual logs always count
 }
 
@@ -1010,6 +1010,8 @@ function runSync_(mode, fullWhoop) {
     var ctx = loadCtx_();
     var whoop = { added: 0, changed: 0, summary: [] };
     if (ctx.currentWeek >= 1) whoop = syncWhoop_(ctx, fullWhoop);
+    var strava = { added: 0, changed: 0, summary: [] };
+    if (ctx.currentWeek >= 1) { try { strava = syncStrava_(ctx, fullWhoop); } catch (stErr) { strava.summary.push('strava error: ' + stErr.message); } }
     var sms = { added: 0, note: '' };
     try { sms = syncSms_(ctx); } catch (smsErr) { sms = { added: 0, note: 'sms error: ' + smsErr.message }; }
 
@@ -1018,13 +1020,13 @@ function runSync_(mode, fullWhoop) {
     try { events += settleSideBets_(ctx); } catch (sbErr) { Logger.log('side bets: ' + sbErr.message); }
     try { events += generateBadgeEvents_(ctx).length; } catch (bErr) { Logger.log('badge events: ' + bErr.message); }
     writeTrackerTab_(ctx);
-    var note = 'whoop_new=' + whoop.added + '; whoop_updated=' + whoop.changed + '; sms_new=' + sms.added +
+    var note = 'whoop_new=' + whoop.added + '; whoop_updated=' + whoop.changed + '; strava_new=' + strava.added + '; sms_new=' + sms.added +
       (sms.note ? ' (' + sms.note + ')' : '') + '; events=' + events +
-      '; seconds=' + Math.round((Date.now() - started) / 1000) + '; ' + whoop.summary.join(' | ');
-    logRun_(mode, whoop.added + sms.added, note);
+      '; seconds=' + Math.round((Date.now() - started) / 1000) + '; ' + whoop.summary.concat(strava.summary).join(' | ');
+    logRun_(mode, whoop.added + strava.added + sms.added, note);
     trimRunLog_(500);
     try { PropertiesService.getScriptProperties().setProperty('LAST_SYNC_AT', nowIso_()); } catch (pErr) {}
-    return { whoop: whoop, sms: sms, events: events };
+    return { whoop: whoop, strava: strava, sms: sms, events: events };
   } catch (err) {
     logRun_(mode + '_error', 0, String(err && err.message || err));
     throw err;
@@ -1061,6 +1063,18 @@ function appLinkHtml_() {
 function doGet(e) {
   var params = (e && e.parameter) || {};
   try {
+    if (str_(params.state).indexOf('strava_') === 0) return handleStravaCallback_(params);
+    if (str_(params.connect) && str_(params.svc) === 'strava') {
+      var sw = null;
+      readPeople_().forEach(function(p) { if (p.key && p.key === str_(params.connect)) sw = p; });
+      if (!sw) return page_('Link not recognized', '#FF8A80', '<p>Open the app from your personal link and try again.</p>');
+      if (!stravaClientId_()) return page_('Strava is not set up yet', '#FFB86B', '<p>Ask the admin to set up Strava for the group.</p>');
+      return page_('Connect Strava', '#FC4C02',
+        '<p>Connecting as <strong>' + htmlEscape_(sw.name) + '</strong>.</p>' +
+        '<p><a style="display:inline-block;background:#FC4C02;color:#fff;font-weight:bold;padding:14px 22px;border-radius:999px;text-decoration:none;" href="' +
+        htmlEscape_(stravaAuthUrl_(sw.pid)) + '">Continue to Strava</a></p>' +
+        '<p style="color:#9AA1AC;font-size:14px;">Log in to Strava and tap Authorize. Activities you share with followers or everyone will post to the group. "Only You" activities stay private.</p>');
+    }
     if (str_(params.code) || str_(params.error) || str_(params.state).indexOf('enroll_') === 0) {
       return handleWhoopCallback_(params);
     }
@@ -1167,7 +1181,7 @@ function handleApi_(req) {
   }
 
   // Small actions that never touch the tracker data: no recalculation, quick answer.
-  var LIGHT = { adminSet: apiAdminSet_, adminWeeksOff: apiAdminWeeksOff_, adminPersonAdd: apiAdminPersonAdd_, adminPersonSet: apiAdminPersonSet_, adminEditPost: apiAdminEditPost_, updateHide: apiUpdateHide_, pushToken: apiPushToken_, pushPrefs: apiPushPrefs_, pushTest: apiPushTest_, feedback: apiFeedback_, hidePost: apiHidePost_, unhidePosts: apiHidePost_ };
+  var LIGHT = { adminSet: apiAdminSet_, adminWeeksOff: apiAdminWeeksOff_, adminPersonAdd: apiAdminPersonAdd_, adminPersonSet: apiAdminPersonSet_, adminEditPost: apiAdminEditPost_, updateHide: apiUpdateHide_, pushToken: apiPushToken_, pushPrefs: apiPushPrefs_, pushTest: apiPushTest_, feedback: apiFeedback_, hidePost: apiHidePost_, unhidePosts: apiHidePost_, stravaOff: apiStravaOff_ };
   if (LIGHT[action]) {
     var lk = LockService.getScriptLock();
     if (!lk.tryLock(25000)) return { ok: false, error: 'The tracker is busy for a moment. Try again.' };
@@ -1236,8 +1250,8 @@ function apiSyncNow_(me, profilePid) {
     var res = runSync_('app_sync', false);
     if (!res) message = 'A sync is already running. Showing the latest.';
     else {
-      var n = res.whoop.added + res.sms.added;
-      message = n ? 'Synced: ' + n + ' new workout' + (n === 1 ? '' : 's') + '.' : 'Synced. Nothing new from WHOOP.';
+      var n = res.whoop.added + (res.strava ? res.strava.added : 0) + res.sms.added;
+      message = n ? 'Synced: ' + n + ' new workout' + (n === 1 ? '' : 's') + '.' : 'Synced. Nothing new.';
     }
   }
   var ctx = loadCtx_();
@@ -1914,9 +1928,9 @@ function apiEditWorkout_(me, req, ctx) {
   if (others && !admin) throw new Error('You can only edit your own workouts.');
   if (!admin && weekOf_(isoOf_(hit.workout_date, ctx.tz), ctx.startIso) !== ctx.currentWeek) throw new Error('Past weeks are locked.');
   var src = str_(hit.source).toLowerCase();
-  if (src !== 'app' && src !== 'whoop' && !admin) throw new Error('That workout cannot be edited.');
+  if (src !== 'app' && src !== 'whoop' && src !== 'strava' && !admin) throw new Error('That workout cannot be edited.');
   hit.note = truncate_(str_(req.note), 500);
-  if (src !== 'whoop') {
+  if (src !== 'whoop' && src !== 'strava') {
     var minutes = Math.round(num_(req.minutes, 0));
     if (minutes < 1 || minutes > 600) throw new Error('Enter how many minutes you worked out.');
     hit.duration_minutes = String(minutes);
@@ -2343,7 +2357,7 @@ function feedItems_(me, ctx, onlyPid, limit) {
     if (src === 'whoop' && !w._ok && !showAll) return;
     if (src === 'sms' && hasReal[key]) return;
     var mineThisWeek = w.participant_id === me.pid && weekOf_(w._date, ctx.startIso) === ctx.currentWeek;
-    var ww = withWhoop[w.workout_id], detailRow = src === 'whoop' ? w : ww;
+    var ww = withWhoop[w.workout_id], detailRow = src === 'whoop' ? w : (ww || (src === 'strava' ? w : null));
     items.push({
       id: w.workout_id, kind: 'w', pid: w.participant_id, ts: feedTime_(ww || w, ctx.tz),
       date: w._date, source: src, activity: str_(w.activity),
@@ -2352,7 +2366,7 @@ function feedItems_(me, ctx, onlyPid, limit) {
       effort: str_(w.effort), note: str_(w.note), ok: !!w._ok, editedAt: str_(w.edited_at),
       detail: detailRow ? whoopDetail_(detailRow) : null,
       canDelete: src === 'app' && mineThisWeek,
-      canEdit: mineThisWeek || adminMe ? (src === 'whoop' ? 'note' : (src === 'app' || adminMe ? 'full' : '')) : ''
+      canEdit: mineThisWeek || adminMe ? (src === 'whoop' || src === 'strava' ? 'note' : (src === 'app' || adminMe ? 'full' : '')) : ''
     });
   });
   readTable_(TAB.EVENTS).forEach(function(e) {
@@ -2671,7 +2685,7 @@ function buildStateCore_(me, ctx) {
     version: V7_VERSION, now: nowIso_(),
     lastSync: str_(PropertiesService.getScriptProperties().getProperty('LAST_SYNC_AT')),
     me: {
-      pid: me.pid, name: me.name, whoop: whoopStatus_(me.pid), push: pushInfo_(me), admin: isAdmin_(me, ctx.settings),
+      pid: me.pid, name: me.name, whoop: whoopStatus_(me.pid), strava: stravaStatus_(me.pid), push: pushInfo_(me), admin: isAdmin_(me, ctx.settings),
       hidden: str_(ctx.settings[me.pid + '|hidden']).split(',').map(str_).filter(function(x) { return x; }),
       connectUrl: redirect ? redirect + '?connect=' + encodeURIComponent(me.key) : ''
     },
@@ -3310,6 +3324,7 @@ function onOpen() {
     .addItem('Full WHOOP re-pull (whole season)', 'menuFullResync')
     .addItem('Store WHOOP client secret', 'storeWhoopClientSecret')
     .addItem('Clear a WHOOP connection', 'clearWhoopConnection')
+    .addItem('Store Strava client secret', 'storeStravaClientSecret')
     .addItem('Make app links', 'showAppLinks')
     .addToUi();
   try { ensureParticipantCols_(); } catch (e) {}
@@ -3395,6 +3410,183 @@ function showWhoopStatus() {
     return p.name + ': ' + label;
   });
   SpreadsheetApp.getUi().alert('WHOOP status', lines.join('\n'), SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+// ----------------------------------------------------------------
+// STRAVA - optional second source. Each person can link their own Strava; their activities post as workouts
+// (source "strava") and count like a logged workout: 30+ minutes (Settings > min_time). Set up once:
+//   1. strava.com/settings/api: create an app. Authorization Callback Domain = script.google.com
+//   2. Settings tab: strava_client_id = the Client ID.  3. Sheet menu: BC Dads > Store Strava client secret.
+// Only activities the person shares with followers or everyone are read (scope activity:read), never "Only You" ones.
+// ----------------------------------------------------------------
+var STRAVA_AUTH_URL = 'https://www.strava.com/oauth/authorize', STRAVA_TOKEN_URL = 'https://www.strava.com/oauth/token', STRAVA_API = 'https://www.strava.com/api/v3';
+
+function stravaClientId_() { return str_(readSettings_().strava_client_id); }
+function stravaSecret_() {
+  var sec = str_(PropertiesService.getScriptProperties().getProperty('STRAVA_CLIENT_SECRET'));
+  if (!sec) throw new Error('Strava client secret is missing. Use BC Dads > Store Strava client secret.');
+  return sec;
+}
+function stravaKey_(pid) { return 'strava_token_' + str_(pid); }
+function stravaTokens_(pid) {
+  try { var t = JSON.parse(PropertiesService.getScriptProperties().getProperty(stravaKey_(pid)) || 'null'); return t && (t.access_token || t.refresh_token) ? t : null; } catch (e) { return null; }
+}
+function stravaSave_(pid, t) { PropertiesService.getScriptProperties().setProperty(stravaKey_(pid), JSON.stringify(t)); }
+function stravaDead_(pid, reason) {
+  var t = stravaTokens_(pid); if (!t) return;
+  t.dead = true; t.dead_reason = truncate_(reason, 300); t.dead_at = nowIso_(); stravaSave_(pid, t);
+  logRun_('strava_needs_reconnect', 0, 'participant_id=' + pid + ' | ' + reason);
+}
+// 'off' (not set up for the group), 'none', 'connected' or 'reconnect'.
+function stravaStatus_(pid) {
+  if (!stravaClientId_()) return 'off';
+  var t = stravaTokens_(pid);
+  return !t ? 'none' : t.dead ? 'reconnect' : 'connected';
+}
+function stravaAuthUrl_(pid) {
+  var q = { client_id: stravaClientId_(), redirect_uri: getRedirectUri_(), response_type: 'code', approval_prompt: 'auto', scope: 'activity:read', state: 'strava_' + str_(pid) };
+  return STRAVA_AUTH_URL + '?' + Object.keys(q).map(function(k) { return encodeURIComponent(k) + '=' + encodeURIComponent(q[k]); }).join('&');
+}
+function stravaTokenReq_(payload) {
+  try {
+    var r = UrlFetchApp.fetch(STRAVA_TOKEN_URL, { method: 'post', payload: payload, muteHttpExceptions: true });
+    return { code: r.getResponseCode(), body: r.getContentText() };
+  } catch (e) { return { code: 0, body: String(e && e.message || e) }; }
+}
+// An access token, refreshed when it is within 5 minutes of running out. A refused refresh marks the link for reconnecting.
+function stravaAccess_(pid, force) {
+  var t = stravaTokens_(pid);
+  if (!t || t.dead) return null;
+  if (!force && t.access_token && Number(t.expires_at || 0) - 300 > Date.now() / 1000) return t.access_token;
+  if (!t.refresh_token) { stravaDead_(pid, 'no refresh token'); return null; }
+  var r = stravaTokenReq_({ client_id: stravaClientId_(), client_secret: stravaSecret_(), grant_type: 'refresh_token', refresh_token: t.refresh_token });
+  if (r.code === 200) {
+    var j = {}; try { j = JSON.parse(r.body); } catch (e) {}
+    if (j.access_token) {
+      t.access_token = j.access_token; t.refresh_token = j.refresh_token || t.refresh_token; t.expires_at = j.expires_at; stravaSave_(pid, t);
+      return t.access_token;
+    }
+    return null;
+  }
+  if (r.code === 400 || r.code === 401) stravaDead_(pid, 'refresh rejected (' + r.code + '): ' + truncate_(r.body, 200));
+  else logRun_('strava_refresh_retry_later', 0, 'participant_id=' + pid + ' | code=' + r.code);
+  return null;
+}
+
+function handleStravaCallback_(params) {
+  var pid = str_(params.state).replace('strava_', ''), code = str_(params.code), error = str_(params.error);
+  if (error) {
+    logRun_('strava_connect_error', 0, 'participant_id=' + pid + ' | ' + error);
+    return page_('Not connected', '#FF8A80', '<p>Strava said: <strong>' + htmlEscape_(error) + '</strong></p><p>Open the app and tap Connect Strava to try again.</p>' + appLinkHtml_());
+  }
+  if (!code || !pid) return page_('BC Dads WAG', '#F2F3F5', '<p>This page finishes Strava connections.</p>' + appLinkHtml_());
+  if (str_(params.scope).split(',').indexOf('activity:read') === -1 && str_(params.scope).split(',').indexOf('activity:read_all') === -1) {
+    return page_('One more box to tick', '#FFB86B', '<p>The app needs to see your activities. Open the app, tap Connect Strava again, and leave "View data about your activities" ticked.</p>' + appLinkHtml_());
+  }
+  var lock = LockService.getScriptLock();
+  lock.waitLock(25000);
+  try {
+    var cache = CacheService.getScriptCache(), ck = 'stravacode_' + code.substring(0, 180);
+    if (cache.get(ck)) return page_('Already connected', '#C8F04B', '<p>Strava is linked. You can close this page.</p>' + appLinkHtml_());
+    cache.put(ck, '1', 21600);
+    var known = readPeople_().some(function(p) { return p.pid === pid; });
+    if (!known) return page_('Connection failed', '#FF8A80', '<p>Unknown participant.</p>');
+    var r = stravaTokenReq_({ client_id: stravaClientId_(), client_secret: stravaSecret_(), code: code, grant_type: 'authorization_code' });
+    if (r.code !== 200) {
+      logRun_('strava_connect_error', 0, 'participant_id=' + pid + ' | token exchange ' + r.code + ' | ' + truncate_(r.body, 300));
+      return page_('Connection failed', '#FF8A80', '<p>Strava did not accept the login (' + r.code + ').</p>' +
+        (/limit|capacity/i.test(r.body) ? '<p>The group\'s Strava app has reached its athlete limit. Tell the admin.</p>' : '<p>Open the app and tap Connect Strava to try again.</p>') + appLinkHtml_());
+    }
+    var j = JSON.parse(r.body);
+    stravaSave_(pid, { access_token: j.access_token, refresh_token: j.refresh_token, expires_at: j.expires_at, athlete: j.athlete ? String(j.athlete.id) : '', needs_backfill: true, saved_at: nowIso_() });
+    logRun_('strava_connected', 0, 'participant_id=' + pid);
+    return page_('Connected', '#FC4C02', '<p>Strava is linked. Your activities will show up in the app within the hour.</p><p style="color:#9AA1AC;">You can close this page now.</p>' + appLinkHtml_());
+  } finally { try { lock.releaseLock(); } catch (e2) {} }
+}
+
+function strNum_(v, d) { return v === undefined || v === null || v === '' || isNaN(Number(v)) ? '' : String(Math.round(Number(v) * d) / d); }
+function stravaSport_(t) { return str_(t || 'Workout').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^Weight Training$/, 'Strength'); }
+
+function syncStrava_(ctx, fullForAll) {
+  var out = { added: 0, changed: 0, summary: [] };
+  if (!stravaClientId_()) return out;
+  var existing = {}, addW = [];
+  readTable_(TAB.WORKOUTS).forEach(function(w) { existing[w.workout_id] = w; });
+  var syncDays = parseInt(ctx.settings.sync_days, 10) || 10;
+  ctx.people.forEach(function(p) {
+    if (!p.active) return;
+    var t = stravaTokens_(p.pid);
+    if (!t) return;
+    if (t.dead) { out.summary.push(p.name + ': strava needs_reconnect'); return; }
+    var token = stravaAccess_(p.pid, false);
+    if (!token) { out.summary.push(p.name + ': strava no_token'); return; }
+    var full = fullForAll || !!t.needs_backfill;
+    var fromIso = full ? ctx.startIso : addDays_(ctx.today, -syncDays);
+    if (dayNum_(fromIso) < dayNum_(ctx.startIso)) fromIso = ctx.startIso;
+    var after = Math.floor(Date.parse(addDays_(fromIso, -1) + 'T00:00:00Z') / 1000), acts = [], failed = '';
+    for (var pg = 1; pg <= 10; pg++) {
+      var url = STRAVA_API + '/athlete/activities?per_page=100&page=' + pg + '&after=' + after, resp;
+      try { resp = UrlFetchApp.fetch(url, { headers: { Authorization: 'Bearer ' + token }, muteHttpExceptions: true }); } catch (e) { failed = 'fetch ' + e.message; break; }
+      var code = resp.getResponseCode();
+      if (code === 401 && pg === 1 && !t._retried) {
+        t._retried = true; token = stravaAccess_(p.pid, true);
+        if (!token) { failed = '401'; break; }
+        pg--; continue;
+      }
+      if (code !== 200) { failed = String(code); if (code === 401) stravaDead_(p.pid, 'API 401 after refresh'); break; }
+      var page = []; try { page = JSON.parse(resp.getContentText()); } catch (e) {}
+      acts = acts.concat(page);
+      if (page.length < 100) break;
+    }
+    if (failed) { out.summary.push(p.name + ': strava error ' + failed); return; }
+    var added = 0;
+    acts.forEach(function(a) {
+      if (!a || !a.id || !a.start_date) return;
+      var date = isoOf_(new Date(a.start_date), ctx.tz);
+      if (!date || dayNum_(date) < dayNum_(ctx.startIso)) return;
+      var secs = num_(a.moving_time, 0) || num_(a.elapsed_time, 0);
+      var end = new Date(Date.parse(a.start_date) + num_(a.elapsed_time, secs) * 1000).toISOString();
+      var name = str_(a.name), generic = /^(morning|afternoon|evening|night|lunch)\b/i.test(name);
+      var id = 'strava_' + a.id, old = existing[id];
+      var row = { workout_id: id, participant_id: p.pid, workout_date: date, workout_start: a.start_date, workout_end: end,
+        duration_minutes: String(Math.round(secs / 60 * 10) / 10), strain: '', source: 'strava', activity: stravaSport_(a.sport_type || a.type),
+        effort: '', note: generic ? '' : truncate_(name, 200), created_at: end, status: 'active',
+        avg_hr: strNum_(a.average_heartrate, 1), max_hr: strNum_(a.max_heartrate, 1), kilojoules: strNum_(a.kilojoules, 10), distance_m: strNum_(a.distance, 1), zones: '' };
+      if (!old) { addW.push(row); existing[id] = row; added++; return; }
+      if (!old._row || str_(old.status).toLowerCase() === 'deleted') return;
+      if (str_(old.duration_minutes) !== row.duration_minutes || isoOf_(old.workout_date, ctx.tz) !== date || str_(old.avg_hr) !== row.avg_hr || str_(old.distance_m) !== row.distance_m) {
+        if (old.edited_at || old.note) row.note = old.note;   // keep a note the person changed in the app
+        row.edited_at = old.edited_at || ''; row.created_at = old.created_at || row.created_at;
+        updateRow_(TAB.WORKOUTS, old._row, row); out.changed++;
+      }
+    });
+    if (t.needs_backfill) { var t2 = stravaTokens_(p.pid); if (t2) { delete t2.needs_backfill; stravaSave_(p.pid, t2); } }
+    out.summary.push(p.name + ': strava ok fetched=' + acts.length + ' new=' + added + (full ? ' (full)' : ''));
+  });
+  appendRows_(TAB.WORKOUTS, addW);
+  out.added = addW.length;
+  return out;
+}
+
+// Me tab > Strava > Disconnect: tells Strava to drop the link and forgets the tokens. Workouts already posted stay.
+function apiStravaOff_(me) {
+  var t = stravaTokens_(me.pid);
+  if (t && t.access_token && !t.dead) {
+    try { UrlFetchApp.fetch('https://www.strava.com/oauth/deauthorize', { method: 'post', payload: { access_token: stravaAccess_(me.pid, false) || t.access_token }, muteHttpExceptions: true }); } catch (e) {}
+  }
+  PropertiesService.getScriptProperties().deleteProperty(stravaKey_(me.pid));
+  logRun_('strava_disconnected', 0, 'participant_id=' + me.pid);
+  return 'Strava disconnected. Workouts already posted stay.';
+}
+
+function storeStravaClientSecret() {
+  var ui = SpreadsheetApp.getUi();
+  var response = ui.prompt('Store Strava client secret', 'Paste the Strava Client Secret (strava.com/settings/api). It is saved in Script Properties, not in the sheet.', ui.ButtonSet.OK_CANCEL);
+  if (response.getSelectedButton() !== ui.Button.OK) return;
+  var secret = str_(response.getResponseText());
+  if (!secret) { ui.alert('Nothing entered. Nothing was saved.'); return; }
+  PropertiesService.getScriptProperties().setProperty('STRAVA_CLIENT_SECRET', secret);
+  ui.alert('Saved.' + (stravaClientId_() ? '' : ' Also put the Client ID in the Settings tab as strava_client_id.'));
 }
 
 function storeWhoopClientSecret() {
