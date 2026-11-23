@@ -26,7 +26,7 @@
 // This ONE file replaces Code.gs, webapp.gs, appsheet_v6_bridge.gs and Index.html.
 // ================================================================
 
-var V7_VERSION = '8.7';
+var V7_VERSION = '8.8';
 var SB_GRACE_MIN = 90;            // side bets: how long after a period ends before a "didn't happen" is paid out (lets late WHOOP data arrive)
 var APP_SYNC_COOLDOWN_MIN = 5;   // the in-app Sync button pulls WHOOP at most this often, for the whole group
 
@@ -1781,12 +1781,15 @@ function apiPhotoAdd_(me, req, ctx) {
   var isPot = /^(pot_\d{1,3}|cpot_[A-Za-z0-9]{4,30})$/.test(target);   // anyone can add photos to a pot's card
   var isBet = /^sb_[A-Za-z0-9]{4,40}$/.test(target), betOk = false;       // the person who proposed a bet can add photos to it
   if (isBet) readTable_(TAB.BETS).forEach(function(b) { if (b.bet_id === target && b.proposer === me.pid) betOk = true; });
-  var own = isPot || isBet ? null : pushOwnerOf_(ctx, target);
+  var isCmt = /^c_[A-Za-z0-9]{6,40}$/.test(target), cmtOk = false;          // a photo posted as a comment, by whoever wrote it
+  if (isCmt) readTable_(TAB.COMMENTS).forEach(function(c) { if (c.comment_id === target && c.participant_id === me.pid) cmtOk = true; });
+  if (isCmt && !cmtOk) throw new Error('You can only add a photo to your own comment.');
+  var own = isPot || isBet || isCmt ? null : pushOwnerOf_(ctx, target);
   if (isBet && !betOk) throw new Error('Only the person who proposed the bet can add photos to it.');
-  if (!isPot && !isBet && (!own || (own.what !== 'workout' && own.what !== 'userpost') || own.pid !== me.pid)) throw new Error('You can add photos to your own posts and workouts.');
-  var max = isPot ? 8 : PHOTO_MAX;
+  if (!isPot && !isBet && !isCmt && (!own || (own.what !== 'workout' && own.what !== 'userpost') || own.pid !== me.pid)) throw new Error('You can add photos to your own posts and workouts.');
+  var max = isPot ? 8 : isCmt ? 1 : PHOTO_MAX;
   var have = readTable_(TAB.PHOTOS).filter(function(x) { return x.target_id === target; }).length;
-  if (have >= max) throw new Error('That already has ' + max + ' photos.');
+  if (have >= max) throw new Error(isCmt ? 'That comment already has a photo.' : 'That already has ' + max + ' photos.');
   var m = str_(req.data).match(/^data:image\/(jpeg|png);base64,(.+)$/);
   if (!m) throw new Error("That photo couldn't be read.");
   if (m[2].length > 6000000) throw new Error('That photo is too big.');
@@ -1859,9 +1862,12 @@ function apiReact_(me, req, ctx) {
 
 function apiComment_(me, req, ctx) {
   var target = truncate_(str_(req.target), 120);
-  var text = truncate_(str_(req.text), 500);
-  if (!target || !text) throw new Error('Write a comment first.');
-  var id = 'c_' + shortId_();
+  var text = truncate_(str_(req.text), 500), withPhoto = isTrue_(req.photo);
+  if (!target || (!text && !withPhoto)) throw new Error('Write a comment first.');
+  // The phone picks the id (c_...) so a photo can be attached to the comment right behind it in the same save queue.
+  var id = /^c_[A-Za-z0-9]{6,40}$/.test(str_(req.id)) ? str_(req.id) : 'c_' + shortId_();
+  if (readTable_(TAB.COMMENTS).some(function(c) { return c.comment_id === id; })) return '';
+  var said = text || 'sent a photo';
   appendRows_(TAB.COMMENTS, [{ comment_id: id, target_id: target, participant_id: me.pid, text: text, created_at: nowIso_() }]);
   if (target.indexOf('wall_') === 0) {
     var owner = ctx.byPid[target.substring(5)];
@@ -1869,12 +1875,12 @@ function apiComment_(me, req, ctx) {
     appendRows_(TAB.EVENTS, [{
       event_id: 'wall_' + id, created_at: nowIso_(), type: 'wall', participant_id: me.pid, week: owner.pid,
       title: owner.pid === me.pid ? me.name + ' posted on his own wall' : me.name + ' wrote on ' + owner.name + "'s wall",
-      body: text
+      body: text || '(photo)'
     }]);
   }
   try {
     var own = pushOwnerOf_(ctx, target);
-    if (own && own.pid && own.pid !== me.pid) pushQueue_(own.pid, 'social', 'New comment', me.name + (own.what === 'wall' ? ' wrote on your wall: ' : ' commented: ') + truncate_(text, 100));
+    if (own && own.pid && own.pid !== me.pid) pushQueue_(own.pid, 'social', 'New comment', me.name + (own.what === 'wall' ? ' wrote on your wall: ' : ' commented: ') + truncate_(said, 100));
     pushToPeople_(pushMentioned_(ctx, text).filter(function(p) { return !own || p !== own.pid; }), 'social', 'You were tagged', me.name + ': ' + truncate_(text, 100), me.pid);
   } catch (pe) { Logger.log('push comment: ' + pe.message); }
   return '';
@@ -1887,6 +1893,11 @@ function apiDeleteComment_(me, req) {
   rows.forEach(function(c) { if (c.comment_id === id) hit = c; });
   if (!hit || hit.participant_id !== me.pid) throw new Error('You can only delete your own comments.');
   tab_(TAB.COMMENTS).deleteRow(hit._row);
+  // Photos posted with the comment go too (bottom row first so the row numbers stay right).
+  readTable_(TAB.PHOTOS).filter(function(x) { return x.target_id === id; }).sort(function(a, b) { return b._row - a._row; }).forEach(function(x) {
+    try { DriveApp.getFileById(x.file_id).setTrashed(true); } catch (e) { Logger.log('photo trash: ' + e.message); }
+    tab_(TAB.PHOTOS).deleteRow(x._row);
+  });
   var ev = null;
   readTable_(TAB.EVENTS).forEach(function(e) { if (e.event_id === 'wall_' + id) ev = e; });
   if (ev) tab_(TAB.EVENTS).deleteRow(ev._row);
@@ -2147,8 +2158,13 @@ function computeBank_(ctx) {
     });
   });
   var potTalk = {}, potPics = {};
-  readTable_(TAB.COMMENTS).forEach(function(c) { if (str_(c.target_id).indexOf('pot_') === 0 || str_(c.target_id).indexOf('cpot_') === 0) (potTalk[c.target_id] = potTalk[c.target_id] || []).push({ id: c.comment_id, pid: c.participant_id, text: c.text, ts: c.created_at }); });
-  readTable_(TAB.PHOTOS).forEach(function(x) { if (str_(x.target_id).indexOf('pot_') === 0 || str_(x.target_id).indexOf('cpot_') === 0) (potPics[x.target_id] = potPics[x.target_id] || []).push({ id: x.photo_id, fileId: x.file_id, pid: x.participant_id, ts: x.created_at }); });
+  var cmtPics = {};
+  readTable_(TAB.PHOTOS).forEach(function(x) {
+    var t = str_(x.target_id), ph = { id: x.photo_id, fileId: x.file_id, pid: x.participant_id, ts: x.created_at };
+    if (t.indexOf('pot_') === 0 || t.indexOf('cpot_') === 0) (potPics[t] = potPics[t] || []).push(ph);
+    else if (t.indexOf('c_') === 0) (cmtPics[t] = cmtPics[t] || []).push(ph);
+  });
+  readTable_(TAB.COMMENTS).forEach(function(c) { if (str_(c.target_id).indexOf('pot_') === 0 || str_(c.target_id).indexOf('cpot_') === 0) (potTalk[c.target_id] = potTalk[c.target_id] || []).push({ id: c.comment_id, pid: c.participant_id, text: c.text, ts: c.created_at, photos: cmtPics[c.comment_id] || [] }); });
   pots.forEach(function(pt) {
     pt.dues = pt.dues.map(function(d) { var paid = alloc[d.pid] && alloc[d.pid]['w' + pt.week] || 0; return { pid: d.pid, amount: d.amount, paid: paid, left: round2_(d.amount - paid) }; });
     pt.paid = round2_(pt.dues.reduce(function(t, d) { return t + d.paid; }, 0));
@@ -2390,7 +2406,7 @@ function feedItems_(me, ctx, onlyPid, limit) {
     actBump_(ctx, c.participant_id, c.created_at);
     var t = alias[c.target_id] || c.target_id;
     if (!comments[t]) comments[t] = [];
-    comments[t].push({ id: c.comment_id, pid: c.participant_id, text: c.text, ts: c.created_at });
+    comments[t].push({ id: c.comment_id, pid: c.participant_id, text: c.text, ts: c.created_at, photos: photos[c.comment_id] || [] });
   });
   items.forEach(function(it) {
     it.photos = (photos[it.id] || []).sort(function(a, b) { return String(a.ts).localeCompare(String(b.ts)); });
