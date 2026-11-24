@@ -1344,7 +1344,6 @@ h2.h{font-size:18px}
       body += L.who && L.who !== S.me.pid ? '<p class="sub">Editing ' + esc(person(L.who)) + "'s workout for " + esc(dayLabel(L.date)) + '. Nobody is told you changed it.</p>'
         : '<p class="sub">Editing your workout for ' + esc(dayLabel(L.date)) + '. It will be marked as edited.</p>';
     } else {
-      if (S.me.admin) body += '<div class="col" style="gap:10px"><span class="lab">Who did it</span>' + opts('forPid', [{ id: '', label: 'Me' }].concat(ppl.filter(function (p) { return p.pid !== S.me.pid; }).map(function (p) { return { id: p.pid, label: p.name }; }))) + '</div>';
       body += '<div class="col" style="gap:10px"><span class="lab">Day</span>' + opts('date', days.map(function (d) { return { id: d.iso, label: d.today ? 'Today' : d.label }; })) +
         (S.me.admin ? '<div class="row"><button class="opt' + (L.earlier ? ' on' : '') + '" data-a="logEarlier">Earlier day</button>' + (L.earlier ? '<input type="date" class="txt" id="logDate" max="' + esc(S.week.today) + '" value="' + esc(L.dateX || '') + '" style="flex:1">' : '') + '</div>' : '') + '</div>';
       if (dup.length) {
@@ -1685,7 +1684,7 @@ h2.h{font-size:18px}
       }
       var logDate = L.earlier ? val('logDate') : L.date;
       if (!logDate) { toast('Pick the day.', true); return; }
-      var forP = L.forPid || '';
+      var forP = '';   // a workout is always logged for yourself
       S.feed.unshift({ id: 'tmp_w' + Date.now(), kind: 'w', pid: forP || S.me.pid, ts: now, date: logDate, source: 'app', activity: L.type, minutes: L.minutes, strain: null,
         effort: L.effort, note: L.note, ok: L.minutes >= S.rules.minTime, editedAt: '', canDelete: false, canEdit: '', reacts: {}, firedBy: [], fires: 0, fired: false, comments: [], pending: true });
       queue('logWorkout', { date: logDate, type: L.type, minutes: L.minutes, effort: L.effort, note: L.note, forPid: forP }, reopen);

@@ -26,7 +26,7 @@
 // This ONE file replaces Code.gs, webapp.gs, appsheet_v6_bridge.gs and Index.html.
 // ================================================================
 
-var V7_VERSION = '9.9';
+var V7_VERSION = '9.10';
 var SB_GRACE_MIN = 90;            // side bets: how long after a period ends before a "didn't happen" is paid out (lets late WHOOP data arrive)
 var APP_SYNC_COOLDOWN_MIN = 5;   // the in-app Sync button pulls WHOOP at most this often, for the whole group
 
@@ -1275,11 +1275,7 @@ function apiSyncNow_(me, profilePid) {
 function apiLogWorkout_(me, req, ctx) {
   if (ctx.currentWeek < 1) throw new Error('The challenge has not started yet.');
   var admin = isAdmin_(me, ctx.settings), who = me, forPid = str_(req.forPid);
-  if (forPid && forPid !== me.pid) {
-    if (!admin) throw new Error('Only the admin can log a workout for someone else.');
-    who = ctx.byPid[forPid];
-    if (!who) throw new Error('Unknown person.');
-  }
+  if (forPid && forPid !== me.pid) throw new Error('You can only log your own workouts.');
   var date = isoOf_(req.date, ctx.tz);
   var ws = weekStartIso_(ctx.startIso, ctx.currentWeek);
   if (!date || dayNum_(date) > dayNum_(ctx.today)) throw new Error('Pick today or an earlier day.');
