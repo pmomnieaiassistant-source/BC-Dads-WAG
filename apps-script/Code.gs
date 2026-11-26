@@ -26,7 +26,7 @@
 // This ONE file replaces Code.gs, webapp.gs, appsheet_v6_bridge.gs and Index.html.
 // ================================================================
 
-var V7_VERSION = '9.10';
+var V7_VERSION = '9.11';
 var SB_GRACE_MIN = 90;            // side bets: how long after a period ends before a "didn't happen" is paid out (lets late WHOOP data arrive)
 var APP_SYNC_COOLDOWN_MIN = 5;   // the in-app Sync button pulls WHOOP at most this often, for the whole group
 
@@ -2166,7 +2166,10 @@ function computeBank_(ctx) {
   var accounts = Object.keys(acct).map(function(pid) {
     var a = acct[pid];
     a.balance = round2_(a.won + a.cwon - a.fines - a.cfines - a.entries + a.paid + a.side);
-    a.owes = a.balance < 0 ? round2_(-a.balance) : 0;
+    // Fines, challenge fines and pot entries are paid in full; winnings stay in the account (for side bets, etc.) instead of being
+    // netted against what is owed. Side-bet losses come out of the account, so the account only adds to what is owed when it goes negative.
+    a.unpaid = round2_(Math.max(0, a.fines + a.cfines + a.entries - a.paid));
+    a.owes = round2_(Math.max(a.unpaid, a.balance < 0 ? -a.balance : 0));
     a.pending = round2_(pending.filter(function(x) { return x.pid === pid; }).reduce(function(t, x) { return t + x.amount; }, 0));
     return a;
   });
